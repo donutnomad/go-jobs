@@ -1,0 +1,42 @@
+scheduler:
+  instance_id: "scheduler-001"
+  lock_key: "scheduler_leader_lock"
+  lock_timeout: 30s
+  heartbeat_interval: 10s
+  max_workers: 10
+
+health_check:
+  enabled: true
+  interval: 10s           # 从30秒缩短到10秒
+  timeout: 3s             # 从5秒缩短到3秒
+  failure_threshold: 2    # 从3次减少到2次
+  recovery_threshold: 1   # 从2次减少到1次
+
+database:
+  host: 127.0.0.1
+  port: 3306
+  database: jobs
+  user: root
+  password: "CdESwVG3wwPWYw"
+  max_connections: 100        # 增加最大连接数以支持更高并发
+  max_idle_connections: 25    # 增加空闲连接数以减少连接建立开销
+  connection_max_lifetime: 10m # 缩短连接生命周期以避免长时间占用
+
+server:
+  port: 8080
+  read_timeout: 30s
+  write_timeout: 30s
+  max_header_bytes: 1048576
+
+log:
+  level: info
+  format: json
+  output: stdout
+  file: logs/scheduler.log
+
+redis:
+  enabled: false
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0

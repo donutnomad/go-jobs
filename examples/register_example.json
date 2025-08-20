@@ -1,0 +1,38 @@
+{
+  "executor_id": "executor-001",
+  "executor_name": "示例执行器",
+  "executor_url": "http://localhost:9090",
+  "health_check_url": "http://localhost:9090/health",
+  "tasks": [
+    {
+      "name": "数据同步任务",
+      "execution_mode": "parallel",
+      "cron_expression": "0 */5 * * * *",
+      "load_balance_strategy": "round_robin",
+      "max_retry": 3,
+      "timeout_seconds": 300,
+      "parameters": {
+        "source": "database_a",
+        "target": "database_b"
+      },
+      "status": "paused"
+    },
+    {
+      "name": "清理日志任务",
+      "execution_mode": "sequential",
+      "cron_expression": "0 0 2 * * *",
+      "load_balance_strategy": "least_loaded",
+      "max_retry": 2,
+      "timeout_seconds": 600,
+      "parameters": {
+        "max_days": 30,
+        "log_type": "application"
+      },
+      "status": "active"
+    }
+  ],
+  "metadata": {
+    "version": "1.0.0",
+    "description": "示例执行器，用于演示自动注册功能"
+  }
+}

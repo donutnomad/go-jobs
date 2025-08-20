@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: job-scheduler-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: jobs
+      MYSQL_CHARACTER_SET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../scripts/migrate.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - scheduler-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  scheduler-1:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: job-scheduler-1
+    environment:
+      - SCHEDULER_INSTANCE_ID=scheduler-001
+    volumes:
+      - ./config-docker.yaml:/app/configs/config.yaml
+      - scheduler_logs_1:/app/logs
+    ports:
+      - "8081:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - scheduler-network
+    restart: unless-stopped
+
+  scheduler-2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: job-scheduler-2
+    environment:
+      - SCHEDULER_INSTANCE_ID=scheduler-002
+    volumes:
+      - ./config-docker.yaml:/app/configs/config.yaml
+      - scheduler_logs_2:/app/logs
+    ports:
+      - "8082:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - scheduler-network
+    restart: unless-stopped
+
+  scheduler-3:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: job-scheduler-3
+    environment:
+      - SCHEDULER_INSTANCE_ID=scheduler-003
+    volumes:
+      - ./config-docker.yaml:/app/configs/config.yaml
+      - scheduler_logs_3:/app/logs
+    ports:
+      - "8083:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - scheduler-network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  scheduler_logs_1:
+  scheduler_logs_2:
+  scheduler_logs_3:
+
+networks:
+  scheduler-network:
+    driver: bridge

@@ -1,0 +1,41 @@
+scheduler:
+  instance_id: "${SCHEDULER_INSTANCE_ID}"
+  lock_key: "scheduler_leader_lock"
+  lock_timeout: 30s
+  heartbeat_interval: 10s
+  max_workers: 10
+
+health_check:
+  enabled: true
+  interval: 30s
+  timeout: 5s
+  failure_threshold: 3
+  recovery_threshold: 2
+
+database:
+  host: mysql
+  port: 3306
+  database: jobs
+  user: root
+  password: "123456"
+  max_connections: 20
+  max_idle_connections: 10
+  connection_max_lifetime: 1h
+
+server:
+  port: 8080
+  read_timeout: 30s
+  write_timeout: 30s
+  max_header_bytes: 1048576
+
+log:
+  level: info
+  format: json
+  output: /app/logs/scheduler.log
+
+redis:
+  enabled: false
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
