@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import {useState, useEffect, Suspense} from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Save, Calendar, Settings } from 'lucide-react';
 import Link from 'next/link';
 
@@ -30,10 +30,19 @@ interface UpdateTaskRequest {
   timeout_seconds: number;
 }
 
+
 export default function EditTaskPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="text-gray-500">加载中...</div></div>}>
+            <EditTaskPageContent />
+        </Suspense>
+    );
+}
+
+function EditTaskPageContent() {
   const router = useRouter();
-  const params = useParams();
-  const taskId = params.id as string;
+  const searchParams = useSearchParams();
+  const taskId = searchParams.get('id');
   const queryClient = useQueryClient();
   
   const [formData, setFormData] = useState<UpdateTaskRequest>({
@@ -46,6 +55,20 @@ export default function EditTaskPage() {
     timeout_seconds: 300,
   });
   const [parametersJson, setParametersJson] = useState('{}');
+
+  // 如果没有 id 参数，显示错误
+  if (!taskId) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          缺少任务 ID 参数
+        </div>
+        <Link href="/tasks" className="mt-4 inline-block text-blue-600 hover:underline">
+          返回任务列表
+        </Link>
+      </div>
+    );
+  }
 
   // 获取任务详情
   const { data: task, isLoading } = useQuery<Task>({
@@ -91,7 +114,7 @@ export default function EditTaskPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['task', taskId] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      router.push(`/tasks/${taskId}`);
+      router.push(`/task-detail?id=${taskId}`);
     },
   });
 
@@ -152,7 +175,7 @@ export default function EditTaskPage() {
           <span>任务管理</span>
         </Link>
         <span className="text-gray-500">/</span>
-        <Link href={`/tasks/${taskId}`} className="text-blue-600 hover:text-blue-800">
+        <Link href={`/task-detail?id=${taskId}`} className="text-blue-600 hover:text-blue-800">
           {task.name}
         </Link>
         <span className="text-gray-500">/</span>
@@ -356,7 +379,7 @@ export default function EditTaskPage() {
         {/* 提交按钮 */}
         <div className="flex items-center justify-end space-x-4 bg-white rounded-lg border border-gray-200 p-6">
           <Link
-            href={`/tasks/${taskId}`}
+            href={`/task-detail?id=${taskId}`}
             className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
           >
             取消

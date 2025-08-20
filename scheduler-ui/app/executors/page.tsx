@@ -359,7 +359,7 @@ export default function ExecutorsPage() {
                     <div key={assignment.id} className="bg-gray-50 rounded-lg p-3">
                       <div className="flex items-center justify-between mb-2">
                         <Link
-                          href={`/tasks/${assignment.task_id}`}
+                          href={`/task-detail?id=${assignment.task_id}`}
                           className="text-sm font-medium text-blue-600 hover:text-blue-800"
                         >
                           {assignment.task?.name || '未知任务'}

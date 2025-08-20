@@ -329,14 +329,14 @@ export default function TasksPage() {
                           <Play className="w-4 h-4" />
                         </button>
                         <Link
-                          href={`/tasks/${task.id}`}
+                          href={`/task-detail?id=${task.id}`}
                           className="p-1 text-blue-600 hover:text-blue-800"
                           title="管理执行器"
                         >
                           <Settings className="w-4 h-4" />
                         </Link>
                         <Link
-                          href={`/tasks/${task.id}/edit`}
+                          href={`/task-edit?id=${task.id}`}
                           className="p-1 text-blue-600 hover:text-blue-800"
                           title="编辑"
                         >

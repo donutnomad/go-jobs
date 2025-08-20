@@ -305,7 +305,7 @@ export default function DashboardPage() {
                         <Play className="w-4 h-4" />
                       </button>
                       <Link 
-                        href={`/tasks/${task.id}`}
+                        href={`/task-detail?id=${task.id}`}
                         className="text-blue-600 hover:text-blue-800"
                       >
                         <Settings className="w-4 h-4" />
