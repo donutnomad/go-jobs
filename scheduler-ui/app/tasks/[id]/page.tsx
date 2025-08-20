@@ -234,6 +234,7 @@ export default function TaskDetailPage() {
   });
 
   const handlePauseResume = () => {
+    if (!task) return;
     if (task.status === 'active') {
       if (confirm(`确定要暂停任务 "${task.name}" 的调度吗？`)) {
         pauseMutation.mutate();

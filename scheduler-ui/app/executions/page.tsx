@@ -32,8 +32,8 @@ export default function ExecutionsPage() {
     staleTime: 0,
   });
 
-  const executions = response?.data || [];
-  const total = response?.total || 0;
+  const executions = response?.data?.items || [];
+  const total = response?.data?.total || 0;
 
   const getStatusIcon = (status: string) => {
     const iconConfig = {
