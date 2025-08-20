@@ -101,6 +101,7 @@ export interface ApiResponse<T> {
   code: number;
   data: T;
   message: string;
+  total: number;
 }
 
 export interface PaginatedResponse<T> {
@@ -116,7 +117,7 @@ export const executionApi = {
     end_time?: string;
     page?: number;
     page_size?: number;
-  }) => api.get<ApiResponse<PaginatedResponse<TaskExecution>>>('/executions', { params }),
+  }) => api.get<ApiResponse<TaskExecution[]>>('/executions', { params }),
   get: (id: string) => api.get<ApiResponse<TaskExecution>>(`/executions/${id}`),
   callback: (id: string, data: {
     status: string;

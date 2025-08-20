@@ -1,10 +1,22 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { executionApi, TaskExecution } from '@/lib/api';
-import { Clock, CheckCircle, XCircle, AlertCircle, Loader, Ban, Eye, Layers, List, ChevronDown, ChevronUp } from 'lucide-react';
-import { format } from 'date-fns';
+import {useState, useMemo} from 'react';
+import {useQuery} from '@tanstack/react-query';
+import {executionApi, TaskExecution} from '@/lib/api';
+import {
+  Clock,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Loader,
+  Ban,
+  Eye,
+  Layers,
+  List,
+  ChevronDown,
+  ChevronUp
+} from 'lucide-react';
+import {format} from 'date-fns';
 import Modal from '@/components/Modal';
 import ExecutionDetail from '@/components/ExecutionDetail';
 import Pagination from '@/components/Pagination';
@@ -18,7 +30,7 @@ export default function ExecutionsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
-  const { data: response, isLoading, error, refetch } = useQuery({
+  const {data: response, isLoading, error, refetch} = useQuery({
     queryKey: ['executions', statusFilter, taskIdFilter, currentPage, pageSize],
     queryFn: () => executionApi.list({
       status: statusFilter || undefined,
@@ -32,31 +44,31 @@ export default function ExecutionsPage() {
     staleTime: 0,
   });
 
-  const executions = response?.data?.items || [];
-  const total = response?.data?.total || 0;
+  const executions = response?.data || [];
+  const total = response?.total || 0;
 
   const getStatusIcon = (status: string) => {
     const iconConfig = {
-      pending: { icon: Clock, color: 'text-gray-500' },
-      running: { icon: Loader, color: 'text-blue-500 animate-spin' },
-      success: { icon: CheckCircle, color: 'text-green-500' },
-      failed: { icon: XCircle, color: 'text-red-500' },
-      timeout: { icon: AlertCircle, color: 'text-orange-500' },
-      cancelled: { icon: Ban, color: 'text-gray-500' },
+      pending: {icon: Clock, color: 'text-gray-500'},
+      running: {icon: Loader, color: 'text-blue-500 animate-spin'},
+      success: {icon: CheckCircle, color: 'text-green-500'},
+      failed: {icon: XCircle, color: 'text-red-500'},
+      timeout: {icon: AlertCircle, color: 'text-orange-500'},
+      cancelled: {icon: Ban, color: 'text-gray-500'},
     };
     const config = iconConfig[status as keyof typeof iconConfig] || iconConfig.pending;
     const Icon = config.icon;
-    return <Icon className={`w-4 h-4 ${config.color}`} />;
+    return <Icon className={`w-4 h-4 ${config.color}`}/>;
   };
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
-      pending: { color: 'bg-gray-100 text-gray-800', label: '等待中' },
-      running: { color: 'bg-blue-100 text-blue-800', label: '执行中' },
-      success: { color: 'bg-green-100 text-green-800', label: '成功' },
-      failed: { color: 'bg-red-100 text-red-800', label: '失败' },
-      timeout: { color: 'bg-orange-100 text-orange-800', label: '超时' },
-      cancelled: { color: 'bg-gray-100 text-gray-800', label: '已取消' },
+      pending: {color: 'bg-gray-100 text-gray-800', label: '等待中'},
+      running: {color: 'bg-blue-100 text-blue-800', label: '执行中'},
+      success: {color: 'bg-green-100 text-green-800', label: '成功'},
+      failed: {color: 'bg-red-100 text-red-800', label: '失败'},
+      timeout: {color: 'bg-orange-100 text-orange-800', label: '超时'},
+      cancelled: {color: 'bg-gray-100 text-gray-800', label: '已取消'},
     };
     const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending;
     return (
@@ -69,12 +81,12 @@ export default function ExecutionsPage() {
   const getDuration = (startTime?: string, endTime?: string) => {
     if (!startTime) return '-';
     if (!endTime) return '执行中...';
-    
+
     const start = new Date(startTime);
     const end = new Date(endTime);
     const diffInMs = end.getTime() - start.getTime();
     const diffInSeconds = Math.floor(diffInMs / 1000);
-    
+
     if (diffInSeconds < 60) {
       return `${diffInSeconds} 秒`;
     } else if (diffInSeconds < 3600) {
@@ -88,6 +100,7 @@ export default function ExecutionsPage() {
     if (!executions || !groupByTask) return null;
 
     const groups: Record<string, TaskExecution[]> = {};
+    // @ts-ignore
     executions.forEach((execution) => {
       const taskId = execution.task_id;
       if (!groups[taskId]) {
@@ -102,8 +115,8 @@ export default function ExecutionsPage() {
       const bTaskName = bExecutions[0]?.task?.name || 'Unknown';
       return aTaskName.localeCompare(bTaskName);
     }).map(([taskId, taskExecutions]) => [
-      taskId, 
-      taskExecutions.sort((a, b) => 
+      taskId,
+      taskExecutions.sort((a, b) =>
         new Date(b.scheduled_time).getTime() - new Date(a.scheduled_time).getTime()
       )
     ] as [string, TaskExecution[]]);
@@ -165,7 +178,7 @@ export default function ExecutionsPage() {
         {format(new Date(execution.scheduled_time), 'yyyy-MM-dd HH:mm:ss')}
       </td>
       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-        {execution.start_time 
+        {execution.start_time
           ? format(new Date(execution.start_time), 'HH:mm:ss')
           : '-'}
       </td>
@@ -187,7 +200,7 @@ export default function ExecutionsPage() {
           className="text-indigo-600 hover:text-indigo-900"
           title="查看详情"
         >
-          <Eye className="w-4 h-4" />
+          <Eye className="w-4 h-4"/>
         </button>
       </td>
     </tr>
@@ -232,7 +245,7 @@ export default function ExecutionsPage() {
           <option value="timeout">超时</option>
           <option value="cancelled">已取消</option>
         </select>
-        
+
         <input
           type="text"
           value={taskIdFilter}
@@ -251,7 +264,7 @@ export default function ExecutionsPage() {
             }`}
             title={groupByTask ? '切换到列表视图' : '切换到分组视图'}
           >
-            {groupByTask ? <List className="w-4 h-4" /> : <Layers className="w-4 h-4" />}
+            {groupByTask ? <List className="w-4 h-4"/> : <Layers className="w-4 h-4"/>}
             <span>{groupByTask ? '列表视图' : '分组视图'}</span>
           </button>
         </div>
@@ -261,7 +274,7 @@ export default function ExecutionsPage() {
       {groupByTask && (
         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
           <p className="text-sm text-yellow-800">
-            <AlertCircle className="w-4 h-4 inline mr-1" />
+            <AlertCircle className="w-4 h-4 inline mr-1"/>
             分组视图显示当前页的数据分组。如需查看更多数据，请切换到列表视图并使用分页功能。
           </p>
         </div>
@@ -275,7 +288,7 @@ export default function ExecutionsPage() {
               const isExpanded = expandedTasks.has(taskId);
               const visibleExecutions = isExpanded ? taskExecutions : taskExecutions.slice(0, 2);
               const hasMore = taskExecutions.length > 2;
-              
+
               return (
                 <div key={taskId} className="border rounded-lg">
                   <div className="bg-gray-50 px-6 py-4 border-b">
@@ -310,12 +323,12 @@ export default function ExecutionsPage() {
                           >
                             {isExpanded ? (
                               <>
-                                <ChevronUp className="w-4 h-4" />
+                                <ChevronUp className="w-4 h-4"/>
                                 <span>折叠</span>
                               </>
                             ) : (
                               <>
-                                <ChevronDown className="w-4 h-4" />
+                                <ChevronDown className="w-4 h-4"/>
                                 <span>展开 ({taskExecutions.length - 2})</span>
                               </>
                             )}
@@ -326,32 +339,32 @@ export default function ExecutionsPage() {
                   </div>
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          执行器
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          计划时间
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          开始时间
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          耗时
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          状态
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          重试次数
-                        </th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          操作
-                        </th>
-                      </tr>
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        执行器
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        计划时间
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        开始时间
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        耗时
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        状态
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        重试次数
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        操作
+                      </th>
+                    </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {visibleExecutions.map((execution) => renderExecutionRow(execution, false))}
+                    {visibleExecutions.map((execution) => renderExecutionRow(execution, false))}
                     </tbody>
                   </table>
                   {!isExpanded && hasMore && (
@@ -377,35 +390,35 @@ export default function ExecutionsPage() {
           // 列表视图
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  任务
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  执行器
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  计划时间
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  开始时间
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  耗时
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  状态
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  重试次数
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  操作
-                </th>
-              </tr>
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                任务
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                执行器
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                计划时间
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                开始时间
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                耗时
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                状态
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                重试次数
+              </th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                操作
+              </th>
+            </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {executions?.map((execution) => renderExecutionRow(execution, true))}
+            {executions?.map((execution) => renderExecutionRow(execution, true))}
             </tbody>
           </table>
         )}
@@ -414,7 +427,7 @@ export default function ExecutionsPage() {
             <p className="text-gray-500">暂无执行记录</p>
           </div>
         )}
-        
+
         {/* 分页组件 */}
         {!groupByTask && total > 0 && (
           <Pagination
@@ -434,8 +447,8 @@ export default function ExecutionsPage() {
         title="执行详情"
       >
         {selectedExecution && (
-          <ExecutionDetail 
-            execution={selectedExecution} 
+          <ExecutionDetail
+            execution={selectedExecution}
             onStatusChange={() => {
               refetch();
               setSelectedExecution(null);
