@@ -194,7 +194,7 @@ function TaskDetailContent() {
     const { data: allExecutors, isLoading: isExecutorsLoading } = useQuery<Executor[]>({
         queryKey: ['executors'],
         queryFn: async () => {
-            const response = await fetch('${apiUrl}/api/v1/executors');
+            const response = await fetch(`${apiUrl}/api/v1/executors`);
             if (!response.ok) {
                 throw new Error('Failed to fetch executors');
             }
