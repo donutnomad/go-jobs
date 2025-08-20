@@ -74,7 +74,7 @@ function EditTaskPageContent() {
   const { data: task, isLoading } = useQuery<Task>({
     queryKey: ['task', taskId],
     queryFn: async () => {
-      const response = await fetch(`/api/v1/tasks/${taskId}`);
+      const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}`);
       if (!response.ok) {
         throw new Error('Failed to fetch task');
       }
@@ -97,10 +97,11 @@ function EditTaskPageContent() {
       setParametersJson(JSON.stringify(task.parameters || {}, null, 2));
     }
   }, [task]);
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
   const updateTaskMutation = useMutation({
     mutationFn: async (data: UpdateTaskRequest) => {
-      const response = await fetch(`/api/v1/tasks/${taskId}`, {
+      const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),

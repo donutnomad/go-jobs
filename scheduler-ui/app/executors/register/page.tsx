@@ -22,6 +22,7 @@ export default function RegisterExecutorPage() {
     base_url: '',
     health_check_url: '',
   });
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterExecutorRequest) => {
@@ -33,7 +34,7 @@ export default function RegisterExecutorPage() {
         health_check_url: data.health_check_url,
       };
       
-      const response = await fetch('/api/v1/executors/register', {
+      const response = await fetch(`${apiUrl}/api/v1/executors/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(apiData),

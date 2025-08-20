@@ -48,6 +48,7 @@ export default function ExecutorsPage() {
     health_check_url: '',
   });
   const queryClient = useQueryClient();
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
   // 获取执行器列表（包含关联的任务信息）- 不再传递筛选参数给后端
   const { data: allExecutors, isLoading } = useQuery<Executor[]>({
@@ -56,7 +57,7 @@ export default function ExecutorsPage() {
       const params = new URLSearchParams();
       params.append('include_tasks', 'true');
       
-      const response = await fetch(`/api/v1/executors?${params}`);
+      const response = await fetch(`${apiUrl}/api/v1/executors?${params}`);
       if (!response.ok) {
         throw new Error('Failed to fetch executors');
       }
@@ -84,7 +85,7 @@ export default function ExecutorsPage() {
   // 删除执行器
   const deleteMutation = useMutation({
     mutationFn: async (executorId: string) => {
-      const response = await fetch(`/api/v1/executors/${executorId}`, {
+      const response = await fetch(`${apiUrl}/api/v1/executors/${executorId}`, {
         method: 'DELETE',
       });
       if (!response.ok) {
@@ -99,7 +100,7 @@ export default function ExecutorsPage() {
   // 更新执行器
   const updateMutation = useMutation({
     mutationFn: async ({ executorId, data }: { executorId: string; data: any }) => {
-      const response = await fetch(`/api/v1/executors/${executorId}`, {
+      const response = await fetch(`${apiUrl}/api/v1/executors/${executorId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

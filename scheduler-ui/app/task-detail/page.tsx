@@ -141,6 +141,8 @@ interface AvailableExecutor extends Executor {
     is_assigned: boolean;
 }
 
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
 function TaskDetailContent() {
     const searchParams = useSearchParams();
     const taskId = searchParams.get('id');
@@ -166,7 +168,7 @@ function TaskDetailContent() {
     const { data: task, isLoading: isTaskLoading } = useQuery<Task>({
         queryKey: ['task', taskId],
         queryFn: async () => {
-            const response = await fetch(`/api/v1/tasks/${taskId}`);
+            const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}`);
             if (!response.ok) {
                 throw new Error('Failed to fetch task');
             }
@@ -179,7 +181,7 @@ function TaskDetailContent() {
     const { data: stats } = useQuery({
         queryKey: ['task-stats', taskId],
         queryFn: async () => {
-            const response = await fetch(`/api/v1/tasks/${taskId}/stats`);
+            const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}/stats`);
             if (!response.ok) {
                 throw new Error('Failed to fetch task stats');
             }
@@ -192,7 +194,7 @@ function TaskDetailContent() {
     const { data: allExecutors, isLoading: isExecutorsLoading } = useQuery<Executor[]>({
         queryKey: ['executors'],
         queryFn: async () => {
-            const response = await fetch('/api/v1/executors');
+            const response = await fetch('${apiUrl}/api/v1/executors');
             if (!response.ok) {
                 throw new Error('Failed to fetch executors');
             }
@@ -203,7 +205,7 @@ function TaskDetailContent() {
     // 删除执行器分配
     const unassignMutation = useMutation({
         mutationFn: async (executorId: string) => {
-            const response = await fetch(`/api/v1/tasks/${taskId}/executors/${executorId}`, {
+            const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}/executors/${executorId}`, {
                 method: 'DELETE',
             });
             if (!response.ok) {
@@ -218,7 +220,7 @@ function TaskDetailContent() {
     // 暂停任务
     const pauseMutation = useMutation({
         mutationFn: async () => {
-            const response = await fetch(`/api/v1/tasks/${taskId}/pause`, {
+            const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}/pause`, {
                 method: 'POST',
             });
             if (!response.ok) {
@@ -234,7 +236,7 @@ function TaskDetailContent() {
     // 恢复任务
     const resumeMutation = useMutation({
         mutationFn: async () => {
-            const response = await fetch(`/api/v1/tasks/${taskId}/resume`, {
+            const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}/resume`, {
                 method: 'POST',
             });
             if (!response.ok) {
@@ -682,7 +684,7 @@ function AssignExecutorModal({
 
     const assignMutation = useMutation({
         mutationFn: async (data: { executor_id: string; priority: number; weight: number }) => {
-            const response = await fetch(`/api/v1/tasks/${taskId}/executors`, {
+            const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}/executors`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),
@@ -813,7 +815,7 @@ function EditAssignmentModal({
 
     const updateMutation = useMutation({
         mutationFn: async (data: { priority: number; weight: number }) => {
-            const response = await fetch(`/api/v1/tasks/${taskId}/executors/${assignment.executor_id}`, {
+            const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}/executors/${assignment.executor_id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),

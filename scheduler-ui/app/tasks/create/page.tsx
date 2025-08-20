@@ -29,10 +29,11 @@ export default function CreateTaskPage() {
     timeout_seconds: 300,
   });
   const [parametersJson, setParametersJson] = useState('{}');
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
   const createTaskMutation = useMutation({
     mutationFn: async (data: CreateTaskRequest) => {
-      const response = await fetch('/api/v1/tasks', {
+      const response = await fetch(`${apiUrl}/api/v1/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
