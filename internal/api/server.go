@@ -4,7 +4,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jobs/scheduler/internal/api/middleware"
 	"github.com/jobs/scheduler/internal/orm"
-	"github.com/jobs/scheduler/internal/scheduler"
 	"go.uber.org/zap"
 )
 
@@ -14,8 +13,7 @@ type Server struct {
 
 func NewServer(
 	storage *orm.Storage,
-	scheduler *scheduler.Scheduler,
-	taskRunner *scheduler.TaskRunner,
+	emitter IEmitter,
 	logger *zap.Logger,
 ) *Server {
 	g := gin.New()
@@ -23,8 +21,6 @@ func NewServer(
 	g.Use(middleware.ErrorHandlingMiddleware(logger))
 	g.Use(middleware.Cors())
 	db := storage.DB()
-
-	var emitter = NewEventBus(scheduler, taskRunner)
 
 	NewTaskAPIWrap(NewTaskAPI(db, emitter)).BindAll(g)
 	NewExecutorAPIWrap(NewExecutorAPI(db, logger)).BindAll(g)

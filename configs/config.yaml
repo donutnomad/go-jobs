@@ -23,6 +23,7 @@ database:
   connection_max_lifetime: 10m # 缩短连接生命周期以避免长时间占用
 
 server:
+  ip: 10.1.1.190
   port: 8080
   read_timeout: 30s
   write_timeout: 30s

@@ -350,16 +350,8 @@ func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id string, req AssignExecutor
 		ID:         uuid.New().String(),
 		TaskID:     id,
 		ExecutorID: req.ExecutorID,
-		Priority:   req.Priority,
-		Weight:     req.Weight,
-	}
-
-	// 设置默认值
-	if taskExecutor.Priority == 0 {
-		taskExecutor.Priority = 1
-	}
-	if taskExecutor.Weight == 0 {
-		taskExecutor.Weight = 1
+		Priority:   min(1, req.Priority),
+		Weight:     min(1, req.Weight),
 	}
 
 	if err := t.db.Create(&taskExecutor).Error; err != nil {

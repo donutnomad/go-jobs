@@ -41,6 +41,16 @@ type IExecutionAPI interface {
 	Stop(ctx *gin.Context, id string) (string, error)
 }
 
+func ExecutionCallbackURL(listenAddr string, isTLS bool) func(string) string {
+	return func(id string) string {
+		var prefix = "http"
+		if isTLS {
+			prefix = "https"
+		}
+		return fmt.Sprintf("%s://%s/api/v1/executions/%s/callback", prefix, listenAddr, id)
+	}
+}
+
 type ExecutionAPI struct {
 	db      *gorm.DB
 	logger  *zap.Logger

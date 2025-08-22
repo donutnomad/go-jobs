@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/google/wire"
 	"github.com/jobs/scheduler/internal/loadbalance"
 	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
@@ -18,8 +17,6 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
-
-var Provider = wire.NewSet(NewHealthChecker, NewTaskRunner, New)
 
 // Scheduler 任务调度器
 type Scheduler struct {
@@ -42,7 +39,7 @@ type Scheduler struct {
 }
 
 // New 创建调度器
-func New(cfg config.Config, storage *orm.Storage, logger *zap.Logger) (*Scheduler, error) {
+func New(cfg config.Config, storage *orm.Storage, logger *zap.Logger, callbackURL func(string) string) (*Scheduler, error) {
 	sqlDB, err := storage.DB().DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sql.DB: %w", err)
@@ -64,10 +61,7 @@ func New(cfg config.Config, storage *orm.Storage, logger *zap.Logger) (*Schedule
 	s.locker = NewLocker(sqlDB, cfg.Scheduler.LockKey, cfg.Scheduler.LockTimeout, logger)
 
 	// 创建任务执行器
-	s.taskRunner = NewTaskRunner(storage, s.lbManager, logger, cfg.Scheduler.MaxWorkers, func(id string) string {
-		// TODO: IP地址不对
-		return fmt.Sprintf("http://localhost:8080/api/v1/executions/%s/callback", id)
-	})
+	s.taskRunner = NewTaskRunner(storage, s.lbManager, logger, cfg.Scheduler.MaxWorkers, callbackURL)
 
 	// Executor健康检查
 	s.healthChecker = NewHealthChecker(storage, logger, cfg.HealthCheck, s.taskRunner)

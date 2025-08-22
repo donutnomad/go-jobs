@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -59,8 +62,13 @@ func main() {
 	}
 	defer db.Close()
 
+	myIP := cfg.Server.IP
+	if myIP == "" {
+		zapLogger.Fatal("Failed to get cfg.server.ip address")
+	}
+
 	// 创建调度器
-	sched, err := scheduler.New(*cfg, db, zapLogger)
+	sched, err := scheduler.New(*cfg, db, zapLogger, api.ExecutionCallbackURL(net.JoinHostPort(myIP, strconv.Itoa(cfg.Server.Port)), false))
 	if err != nil {
 		zapLogger.Fatal("Failed to create scheduler", zap.Error(err))
 	}
@@ -70,8 +78,10 @@ func main() {
 		zapLogger.Fatal("Failed to start scheduler", zap.Error(err))
 	}
 
+	var emitter = api.NewEventBus(sched, sched.GetTaskRunner())
+
 	// 创建API服务器
-	apiServer := api.NewServer(db, sched, sched.GetTaskRunner(), zapLogger)
+	apiServer := api.NewServer(db, emitter, zapLogger)
 
 	// 启动HTTP服务器
 	httpServer := &http.Server{
@@ -82,16 +92,14 @@ func main() {
 		MaxHeaderBytes: cfg.Server.MaxHeaderBytes,
 	}
 
-	// 在新的goroutine中启动服务器
 	go func() {
 		zapLogger.Info("Starting API server",
 			zap.Int("port", cfg.Server.Port))
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			zapLogger.Fatal("Failed to start API server", zap.Error(err))
 		}
 	}()
 
-	// 等待中断信号
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh

@@ -173,7 +173,23 @@ func (r *TaskRunner) Submit(task *models.Task, execution *models.TaskExecution) 
 }
 
 func (r *TaskRunner) Submit2(taskId string, executionId string) {
-	// TODO: 从id加载数据并调用Sumbit(
+	var task models.Task
+	if err := r.storage.DB().Where("id = ?", taskId).First(&task).Error; err != nil {
+		r.logger.Error("failed to load task",
+			zap.String("task_id", taskId),
+			zap.Error(err))
+		return
+	}
+
+	var execution models.TaskExecution
+	if err := r.storage.DB().Where("id = ?", executionId).First(&execution).Error; err != nil {
+		r.logger.Error("failed to load task execution",
+			zap.String("execution_id", executionId),
+			zap.Error(err))
+		return
+	}
+
+	r.Submit(&task, &execution)
 }
 
 // worker 工作协程
