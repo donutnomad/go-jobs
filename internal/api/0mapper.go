@@ -1,12 +1,10 @@
 package api
 
 import (
-	"github.com/google/uuid"
 	"github.com/jobs/scheduler/internal/models"
 )
 
-// CreateTaskRequest 创建任务请求
-type CreateTaskRequest struct {
+type CreateTaskReq struct {
 	Name                string                     `json:"name" binding:"required"`
 	CronExpression      string                     `json:"cron_expression" binding:"required"`
 	Parameters          models.JSONMap             `json:"parameters"`
@@ -16,8 +14,7 @@ type CreateTaskRequest struct {
 	TimeoutSeconds      int                        `json:"timeout_seconds"`
 }
 
-// UpdateTaskRequest 更新任务请求
-type UpdateTaskRequest struct {
+type UpdateTaskReq struct {
 	Name                string                     `json:"name"`
 	CronExpression      string                     `json:"cron_expression"`
 	Parameters          models.JSONMap             `json:"parameters"`
@@ -28,32 +25,52 @@ type UpdateTaskRequest struct {
 	Status              models.TaskStatus          `json:"status"`
 }
 
-// AssignExecutorRequest 分配执行器请求
-type AssignExecutorRequest struct {
+type AssignExecutorReq struct {
 	ExecutorID string `json:"executor_id" binding:"required"`
 	Priority   int    `json:"priority"`
 	Weight     int    `json:"weight"`
 }
 
-// UpdateExecutorAssignmentRequest 更新执行器分配请求
-type UpdateExecutorAssignmentRequest struct {
+type UpdateExecutorAssignmentReq struct {
 	Priority int `json:"priority"`
 	Weight   int `json:"weight"`
 }
 
-// generateID 生成UUID
-func generateID() string {
-	return uuid.New().String()
-}
-
 ////// executor API  //////
 
-type ListExecutorRequest struct {
+type ListExecutorReq struct {
 	IncludeTasks bool `json:"include_tasks"`
 }
 
-type UpdateExecutorRequest struct {
+type UpdateExecutorReq struct {
 	Name           string `json:"name"`
 	BaseURL        string `json:"base_url"`
 	HealthCheckURL string `json:"health_check_url"`
+}
+
+///// execution API //////
+
+type ExecutionStatsResp struct {
+	Total   int64 `json:"total"`
+	Success int64 `json:"success"`
+	Failed  int64 `json:"failed"`
+	Running int64 `json:"running"`
+	Pending int64 `json:"pending"`
+}
+
+type ListExecutionReq struct {
+	Page      int    `form:"page"`
+	PageSize  int    `form:"page_size"`
+	TaskID    string `form:"task_id"`
+	Status    string `form:"status"`
+	StartTime string `form:"start_time"`
+	EndTime   string `form:"end_time"`
+}
+
+type ListExecutionResp struct {
+	Data       []models.TaskExecution `json:"data"`
+	Total      int64                  `json:"total"`
+	Page       int                    `json:"page"`
+	PageSize   int                    `json:"page_size"`
+	TotalPages int                    `json:"total_pages"`
 }

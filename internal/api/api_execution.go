@@ -19,7 +19,7 @@ type IExecutionAPI interface {
 	// List 获取执行历史列表
 	// 获取所有的执行历史列表
 	// @GET(api/v1/executions)
-	List(ctx *gin.Context, req ListExecutionRequest) (ListExecutionResponse, error)
+	List(ctx *gin.Context, req ListExecutionReq) (ListExecutionResp, error)
 
 	// Get 获取执行历史详情
 	// 获取指定id的执行历史详情
@@ -29,7 +29,7 @@ type IExecutionAPI interface {
 	// Stats 获取执行统计
 	// 获取指定任务的执行统计
 	// @GET(api/v1/executions/stats)
-	Stats(ctx *gin.Context, req StatsRequest) (ExecutionStats2, error)
+	Stats(ctx *gin.Context, req StatsRequest) (ExecutionStatsResp, error)
 
 	// Callback 执行回调
 	// 执行指定id的执行回调
@@ -40,31 +40,6 @@ type IExecutionAPI interface {
 	// 停止指定id的执行
 	// @POST(api/v1/executions/{id}/stop)
 	Stop(ctx *gin.Context, id string) (string, error)
-}
-
-type ExecutionStats2 struct {
-	Total   int64 `json:"total"`
-	Success int64 `json:"success"`
-	Failed  int64 `json:"failed"`
-	Running int64 `json:"running"`
-	Pending int64 `json:"pending"`
-}
-
-type ListExecutionRequest struct {
-	Page      int    `form:"page"`
-	PageSize  int    `form:"page_size"`
-	TaskID    string `form:"task_id"`
-	Status    string `form:"status"`
-	StartTime string `form:"start_time"`
-	EndTime   string `form:"end_time"`
-}
-
-type ListExecutionResponse struct {
-	Data       []models.TaskExecution `json:"data"`
-	Total      int64                  `json:"total"`
-	Page       int                    `json:"page"`
-	PageSize   int                    `json:"page_size"`
-	TotalPages int                    `json:"total_pages"`
 }
 
 var _ IExecutionAPI = (*ExecutionAPI)(nil)
@@ -89,8 +64,8 @@ type StatsRequest struct {
 	TaskID    string `form:"task_id"`
 }
 
-func (e *ExecutionAPI) Stats(ctx *gin.Context, req StatsRequest) (ExecutionStats2, error) {
-	var stats ExecutionStats2
+func (e *ExecutionAPI) Stats(ctx *gin.Context, req StatsRequest) (ExecutionStatsResp, error) {
+	var stats ExecutionStatsResp
 
 	query := e.storage.DB().Model(&models.TaskExecution{})
 	// 支持时间范围过滤
@@ -107,7 +82,7 @@ func (e *ExecutionAPI) Stats(ctx *gin.Context, req StatsRequest) (ExecutionStats
 
 	// 统计总数
 	if err := query.Count(&stats.Total).Error; err != nil {
-		return ExecutionStats2{}, err
+		return ExecutionStatsResp{}, err
 	}
 
 	// 统计各状态数量
@@ -119,7 +94,7 @@ func (e *ExecutionAPI) Stats(ctx *gin.Context, req StatsRequest) (ExecutionStats
 	return stats, nil
 }
 
-func (e *ExecutionAPI) List(ctx *gin.Context, req ListExecutionRequest) (ListExecutionResponse, error) {
+func (e *ExecutionAPI) List(ctx *gin.Context, req ListExecutionReq) (ListExecutionResp, error) {
 	// 分页参数
 	page := max(1, req.Page)
 	pageSize := 20 // 默认每页20条
@@ -152,13 +127,13 @@ func (e *ExecutionAPI) List(ctx *gin.Context, req ListExecutionRequest) (ListExe
 	// 获取总数
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
-		return ListExecutionResponse{}, err
+		return ListExecutionResp{}, err
 	}
 
 	// 查询数据
 	query = query.Preload("Task").Preload("Executor")
 	if err := query.Order("scheduled_time DESC").Limit(pageSize).Offset(offset).Find(&executions).Error; err != nil {
-		return ListExecutionResponse{}, err
+		return ListExecutionResp{}, err
 	}
 
 	// 计算总页数
@@ -167,7 +142,7 @@ func (e *ExecutionAPI) List(ctx *gin.Context, req ListExecutionRequest) (ListExe
 		totalPages++
 	}
 
-	return ListExecutionResponse{
+	return ListExecutionResp{
 		Data:       executions,
 		Total:      total,
 		Page:       page,

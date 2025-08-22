@@ -15,7 +15,7 @@ type IExecutorAPI interface {
 	// List 获取执行器列表
 	// 获取所有的执行器列表
 	// @GET(api/v1/executors)
-	List(ctx *gin.Context, req ListExecutorRequest) ([]*models.Executor, error)
+	List(ctx *gin.Context, req ListExecutorReq) ([]*models.Executor, error)
 
 	// Get 获取执行器详情
 	// 获取指定id的执行器详情
@@ -30,7 +30,7 @@ type IExecutorAPI interface {
 	// Update 更新执行器
 	// 更新指定id的执行器
 	// @PUT(api/v1/executors/{id})
-	Update(ctx *gin.Context, id string, req UpdateExecutorRequest) (models.Executor, error)
+	Update(ctx *gin.Context, id string, req UpdateExecutorReq) (models.Executor, error)
 
 	// UpdateStatus 更新执行器状态
 	// 更新指定id的执行器状态
@@ -55,7 +55,7 @@ func NewExecutorAPI(storage *orm.Storage, executorManager *executor.Manager, log
 	return &ExecutorAPI{storage: storage, executorManager: executorManager, logger: logger}
 }
 
-func (e *ExecutorAPI) List(ctx *gin.Context, req ListExecutorRequest) ([]*models.Executor, error) {
+func (e *ExecutorAPI) List(ctx *gin.Context, req ListExecutorReq) ([]*models.Executor, error) {
 	executors, err := e.executorManager.ListExecutors(ctx.Request.Context())
 	if err != nil {
 		return nil, err
@@ -93,7 +93,7 @@ func (e *ExecutorAPI) Register(ctx *gin.Context, req executor.RegisterRequest) (
 	return e.executorManager.RegisterExecutor(ctx.Request.Context(), req)
 }
 
-func (e *ExecutorAPI) Update(ctx *gin.Context, id string, req UpdateExecutorRequest) (models.Executor, error) {
+func (e *ExecutorAPI) Update(ctx *gin.Context, id string, req UpdateExecutorReq) (models.Executor, error) {
 	// 查找执行器
 	var ret models.Executor
 	if err := e.storage.DB().Where("id = ?", id).First(&ret).Error; err != nil {

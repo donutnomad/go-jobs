@@ -132,12 +132,12 @@ func (a *ExecutionAPIWrap) bind(router gin.IRoutes, method, path string, preHand
 // @Success 200 {object} []models.Task
 // @Router api/v1/tasks [get]
 func (a *ExecutionAPIWrap) List(ctx *gin.Context) {
-	var req ListExecutionRequest
+	var req ListExecutionReq
 	if !onGinBind(ctx, &req, "QUERY") {
 		return
 	}
 	result, err := a.inner.List(ctx, req)
-	onGinResponse[ListExecutionResponse](ctx, result, err)
+	onGinResponse[ListExecutionResp](ctx, result, err)
 }
 
 // Get
@@ -158,7 +158,7 @@ func (a *ExecutionAPIWrap) Get(ctx *gin.Context) {
 // @Description 获取指定任务的执行统计
 // @Produce json
 // @Param req query StatsRequest true "req"
-// @Success 200 {object} ExecutionStats2
+// @Success 200 {object} ExecutionStatsResp
 // @Router api/v1/executions/stats [get]
 func (a *ExecutionAPIWrap) Stats(ctx *gin.Context) {
 	var req StatsRequest
@@ -166,7 +166,7 @@ func (a *ExecutionAPIWrap) Stats(ctx *gin.Context) {
 		return
 	}
 	result, err := a.inner.Stats(ctx, req)
-	onGinResponse[ExecutionStats2](ctx, result, err)
+	onGinResponse[ExecutionStatsResp](ctx, result, err)
 }
 
 // Callback
@@ -254,7 +254,7 @@ func (a *ExecutorAPIWrap) bind(router gin.IRoutes, method, path string, preHandl
 // @Success 200 {object} []models.Task
 // @Router api/v1/tasks [get]
 func (a *ExecutorAPIWrap) List(ctx *gin.Context) {
-	var req ListExecutorRequest
+	var req ListExecutorReq
 	if !onGinBind(ctx, &req, "QUERY") {
 		return
 	}
@@ -296,12 +296,12 @@ func (a *ExecutorAPIWrap) Register(ctx *gin.Context) {
 // @Description 更新指定id的执行器
 // @Produce json
 // @Param id path string true "id"
-// @Param req body UpdateExecutorRequest true "req"
+// @Param req body UpdateExecutorReq true "req"
 // @Success 200 {object} models.Executor
 // @Router api/v1/executors/{id} [put]
 func (a *ExecutorAPIWrap) Update(ctx *gin.Context) {
 	id := ctx.Param("id")
-	var req UpdateExecutorRequest
+	var req UpdateExecutorReq
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
@@ -424,11 +424,11 @@ func (a *TaskAPIWrap) Get(ctx *gin.Context) {
 // @Summary 创建任务
 // @Description 创建一个新任务
 // @Produce json
-// @Param req body CreateTaskRequest true "req"
+// @Param req body CreateTaskReq true "req"
 // @Success 200 {object} models.Task
 // @Router api/v1/tasks [post]
 func (a *TaskAPIWrap) Create(ctx *gin.Context) {
-	var req CreateTaskRequest
+	var req CreateTaskReq
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
@@ -454,12 +454,12 @@ func (a *TaskAPIWrap) Delete(ctx *gin.Context) {
 // @Description 更新指定id的任务
 // @Produce json
 // @Param id path string true "id"
-// @Param req body UpdateTaskRequest true "req"
+// @Param req body UpdateTaskReq true "req"
 // @Success 200 {object} models.Task
 // @Router api/v1/tasks/{id} [put]
 func (a *TaskAPIWrap) UpdateTask(ctx *gin.Context) {
 	id := ctx.Param("id")
-	var req UpdateTaskRequest
+	var req UpdateTaskReq
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
@@ -529,12 +529,12 @@ func (a *TaskAPIWrap) GetTaskExecutors(ctx *gin.Context) {
 // @Description 为指定id的任务分配执行器
 // @Produce json
 // @Param id path string true "id"
-// @Param req body AssignExecutorRequest true "req"
+// @Param req body AssignExecutorReq true "req"
 // @Success 200 {object} models.TaskExecutor
 // @Router api/v1/tasks/{id}/executors [post]
 func (a *TaskAPIWrap) AssignExecutor(ctx *gin.Context) {
 	id := ctx.Param("id")
-	var req AssignExecutorRequest
+	var req AssignExecutorReq
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
@@ -548,13 +548,13 @@ func (a *TaskAPIWrap) AssignExecutor(ctx *gin.Context) {
 // @Produce json
 // @Param id path string true "id"
 // @Param executor_id path string true "executorID"
-// @Param req body UpdateExecutorAssignmentRequest true "req"
+// @Param req body UpdateExecutorAssignmentReq true "req"
 // @Success 200 {object} models.TaskExecutor
 // @Router api/v1/tasks/{id}/executors/{executor_id} [put]
 func (a *TaskAPIWrap) UpdateExecutorAssignment(ctx *gin.Context) {
 	id := ctx.Param("id")
 	executorID := ctx.Param("executor_id")
-	var req UpdateExecutorAssignmentRequest
+	var req UpdateExecutorAssignmentReq
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}

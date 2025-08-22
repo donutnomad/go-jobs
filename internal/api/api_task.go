@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jobs/scheduler/internal/executor"
 	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
@@ -27,7 +28,7 @@ type ITaskAPI interface {
 	// Create 创建任务
 	// 创建一个新任务
 	// @POST(api/v1/tasks)
-	Create(ctx *gin.Context, req CreateTaskRequest) (models.Task, error)
+	Create(ctx *gin.Context, req CreateTaskReq) (models.Task, error)
 
 	// Delete 删除任务
 	// 删除指定id的任务
@@ -37,7 +38,7 @@ type ITaskAPI interface {
 	// UpdateTask 更新任务
 	// 更新指定id的任务
 	// @PUT(api/v1/tasks/{id})
-	UpdateTask(ctx *gin.Context, id string, req UpdateTaskRequest) (models.Task, error)
+	UpdateTask(ctx *gin.Context, id string, req UpdateTaskReq) (models.Task, error)
 
 	// TriggerTask 手动触发任务
 	// 手动触发指定id的任务
@@ -62,12 +63,12 @@ type ITaskAPI interface {
 	// AssignExecutor 为任务分配执行器
 	// 为指定id的任务分配执行器
 	// @POST(api/v1/tasks/{id}/executors)
-	AssignExecutor(ctx *gin.Context, id string, req AssignExecutorRequest) (models.TaskExecutor, error)
+	AssignExecutor(ctx *gin.Context, id string, req AssignExecutorReq) (models.TaskExecutor, error)
 
 	// UpdateExecutorAssignment 更新任务执行器分配
 	// 更新指定id的任务执行器分配
 	// @PUT(api/v1/tasks/{id}/executors/{executor_id})
-	UpdateExecutorAssignment(ctx *gin.Context, id string, executorID string, req UpdateExecutorAssignmentRequest) (models.TaskExecutor, error)
+	UpdateExecutorAssignment(ctx *gin.Context, id string, executorID string, req UpdateExecutorAssignmentReq) (models.TaskExecutor, error)
 
 	// UnassignExecutor 取消任务执行器分配
 	// 取消指定id的任务执行器分配
@@ -145,9 +146,9 @@ func (t *TaskAPI) Get(ctx *gin.Context, id string) (models.Task, error) {
 	return task, nil
 }
 
-func (t *TaskAPI) Create(ctx *gin.Context, req CreateTaskRequest) (models.Task, error) {
+func (t *TaskAPI) Create(ctx *gin.Context, req CreateTaskReq) (models.Task, error) {
 	task := models.Task{
-		ID:                  generateID(),
+		ID:                  uuid.New().String(),
 		Name:                req.Name,
 		CronExpression:      req.CronExpression,
 		Parameters:          req.Parameters,
@@ -179,7 +180,7 @@ func (t *TaskAPI) Create(ctx *gin.Context, req CreateTaskRequest) (models.Task, 
 	return task, nil
 }
 
-func (t *TaskAPI) UpdateTask(ctx *gin.Context, taskID string, req UpdateTaskRequest) (models.Task, error) {
+func (t *TaskAPI) UpdateTask(ctx *gin.Context, taskID string, req UpdateTaskReq) (models.Task, error) {
 	var task models.Task
 	if err := t.storage.DB().Where("id = ?", taskID).First(&task).Error; err != nil {
 		return models.Task{}, errors.Join(err, errors.New("task not found"))
@@ -322,7 +323,7 @@ func (t *TaskAPI) GetTaskExecutors(ctx *gin.Context, id string) ([]models.TaskEx
 	return taskExecutors, nil
 }
 
-func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id string, req AssignExecutorRequest) (models.TaskExecutor, error) {
+func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id string, req AssignExecutorReq) (models.TaskExecutor, error) {
 	// 验证任务是否存在
 	var task models.Task
 	if err := t.storage.DB().Where("id = ?", id).First(&task).Error; err != nil {
@@ -337,7 +338,7 @@ func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id string, req AssignExecutor
 
 	// 创建任务执行器关联
 	taskExecutor := models.TaskExecutor{
-		ID:         generateID(),
+		ID:         uuid.New().String(),
 		TaskID:     id,
 		ExecutorID: req.ExecutorID,
 		Priority:   req.Priority,
@@ -359,7 +360,7 @@ func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id string, req AssignExecutor
 	return taskExecutor, nil
 }
 
-func (t *TaskAPI) UpdateExecutorAssignment(ctx *gin.Context, id string, executorID string, req UpdateExecutorAssignmentRequest) (models.TaskExecutor, error) {
+func (t *TaskAPI) UpdateExecutorAssignment(ctx *gin.Context, id string, executorID string, req UpdateExecutorAssignmentReq) (models.TaskExecutor, error) {
 	// 查找现有分配
 	var taskExecutor models.TaskExecutor
 	if err := t.storage.DB().
