@@ -33,9 +33,11 @@ func (s *LeastLoadedStrategy) Select(ctx context.Context, taskID string, executo
 	loads := make([]executorLoad, 0, len(executors))
 	for _, exec := range executors {
 		var count int64
+		// 统计所有同名执行器的运行任务总数
 		err := s.storage.DB().
 			Model(&models.TaskExecution{}).
-			Where("executor_id = ? AND status = ?", exec.ID, models.ExecutionStatusRunning).
+			Joins("JOIN executors ON executors.id = task_executions.executor_id").
+			Where("executors.name = ? AND task_executions.status = ?", exec.Name, models.ExecutionStatusRunning).
 			Count(&count).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to count running tasks: %w", err)

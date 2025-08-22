@@ -339,19 +339,19 @@ func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id string, req AssignExecutor
 		return models.TaskExecutor{}, errors.Join(err, errors.New("task not found"))
 	}
 
-	// 验证执行器是否存在
+	// 验证执行器是否存在，并获取执行器名称
 	var exec models.Executor
 	if err := t.db.Where("id = ?", req.ExecutorID).First(&exec).Error; err != nil {
 		return models.TaskExecutor{}, errors.Join(err, errors.New("executor not found"))
 	}
 
-	// 创建任务执行器关联
+	// 创建任务执行器关联，使用执行器名称而不是ID
 	taskExecutor := models.TaskExecutor{
-		ID:         uuid.New().String(),
-		TaskID:     id,
-		ExecutorID: req.ExecutorID,
-		Priority:   min(1, req.Priority),
-		Weight:     min(1, req.Weight),
+		ID:           uuid.New().String(),
+		TaskID:       id,
+		ExecutorName: exec.Name,
+		Priority:     min(1, req.Priority),
+		Weight:       min(1, req.Weight),
 	}
 
 	if err := t.db.Create(&taskExecutor).Error; err != nil {
@@ -362,10 +362,16 @@ func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id string, req AssignExecutor
 }
 
 func (t *TaskAPI) UpdateExecutorAssignment(ctx *gin.Context, id string, executorID string, req UpdateExecutorAssignmentReq) (models.TaskExecutor, error) {
-	// 查找现有分配
+	// 先查找执行器获取其名称
+	var exec models.Executor
+	if err := t.db.Where("id = ?", executorID).First(&exec).Error; err != nil {
+		return models.TaskExecutor{}, errors.Join(err, errors.New("executor not found"))
+	}
+
+	// 查找现有分配，使用执行器名称
 	var taskExecutor models.TaskExecutor
 	if err := t.db.
-		Where("task_id = ? AND executor_id = ?", id, executorID).
+		Where("task_id = ? AND executor_name = ?", id, exec.Name).
 		First(&taskExecutor).Error; err != nil {
 		return models.TaskExecutor{}, errors.Join(err, errors.New("assignment not found"))
 	}
@@ -382,8 +388,15 @@ func (t *TaskAPI) UpdateExecutorAssignment(ctx *gin.Context, id string, executor
 }
 
 func (t *TaskAPI) UnassignExecutor(ctx *gin.Context, id string, executorID string) (string, error) {
+	// 先查找执行器获取其名称
+	var exec models.Executor
+	if err := t.db.Where("id = ?", executorID).First(&exec).Error; err != nil {
+		return "", errors.Join(err, errors.New("executor not found"))
+	}
+
+	// 删除任务执行器关联，使用执行器名称
 	result := t.db.
-		Where("task_id = ? AND executor_id = ?", id, executorID).
+		Where("task_id = ? AND executor_name = ?", id, exec.Name).
 		Delete(&models.TaskExecutor{})
 
 	if result.Error != nil {

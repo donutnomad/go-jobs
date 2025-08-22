@@ -40,7 +40,7 @@ func (s *WeightedRoundRobinStrategy) Select(ctx context.Context, taskID string, 
 		return nil, fmt.Errorf("failed to get task executors: %w", err)
 	}
 
-	// 构建权重映射
+	// 构建权重映射 - 使用执行器名称作为键
 	weightMap := make(map[string]int)
 	totalWeight := 0
 	for _, te := range taskExecutors {
@@ -48,11 +48,11 @@ func (s *WeightedRoundRobinStrategy) Select(ctx context.Context, taskID string, 
 		if weight <= 0 {
 			weight = 1
 		}
-		weightMap[te.ExecutorID] = weight
+		weightMap[te.ExecutorName] = weight
 
 		// 只计算可用执行器的权重
 		for _, exec := range executors {
-			if exec.ID == te.ExecutorID {
+			if exec.Name == te.ExecutorName {
 				totalWeight += weight
 				break
 			}
@@ -84,7 +84,7 @@ func (s *WeightedRoundRobinStrategy) Select(ctx context.Context, taskID string, 
 	currentWeight := 0
 
 	for _, exec := range executors {
-		weight := weightMap[exec.ID]
+		weight := weightMap[exec.Name]
 		if weight <= 0 {
 			weight = 1
 		}

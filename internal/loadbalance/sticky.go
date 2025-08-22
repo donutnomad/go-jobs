@@ -49,16 +49,21 @@ func (s *StickyStrategy) Select(ctx context.Context, taskID string, executors []
 		return nil, fmt.Errorf("failed to get load balance state: %w", err)
 	}
 
-	// 检查粘性执行器是否仍然可用
+	// 检查粘性执行器是否仍然可用（基于名称匹配，允许同名执行器替代）
 	if state.StickyExecutorID != nil {
-		for _, exec := range executors {
-			if exec.ID == *state.StickyExecutorID {
-				// 粘性执行器仍然可用
-				state.LastExecutorID = &exec.ID
-				if err := s.storage.DB().Save(&state).Error; err != nil {
-					return nil, fmt.Errorf("failed to update load balance state: %w", err)
+		// 获取原粘性执行器的名称
+		var stickyExec models.Executor
+		if err := s.storage.DB().Where("id = ?", *state.StickyExecutorID).First(&stickyExec).Error; err == nil {
+			// 查找当前可用执行器中是否有同名的
+			for _, exec := range executors {
+				if exec.Name == stickyExec.Name {
+					// 找到同名执行器，使用它并更新状态
+					state.LastExecutorID = &exec.ID
+					if err := s.storage.DB().Save(&state).Error; err != nil {
+						return nil, fmt.Errorf("failed to update load balance state: %w", err)
+					}
+					return exec, nil
 				}
-				return exec, nil
 			}
 		}
 	}

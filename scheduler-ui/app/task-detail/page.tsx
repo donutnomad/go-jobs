@@ -710,7 +710,7 @@ function AssignExecutorModal({
         }
     };
 
-    const unassignedExecutors = (availableExecutors || []).filter(e => !e.is_assigned && e.status === 'online');
+    const unassignedExecutors = (availableExecutors || []).filter(e => !e.is_assigned);
 
     if (!isOpen) return null;
 

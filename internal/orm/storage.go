@@ -33,7 +33,8 @@ func New(cfg Config) (*Storage, error) {
 		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
 
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger:                                   logger.Default.LogMode(logger.Info),
+		DisableForeignKeyConstraintWhenMigrating: true, // 禁用外键约束创建，保留关联关系
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
@@ -48,14 +49,14 @@ func New(cfg Config) (*Storage, error) {
 	sqlDB.SetMaxIdleConns(cfg.MaxIdleConnections)
 	sqlDB.SetConnMaxLifetime(cfg.ConnectionMaxLifetime)
 
-	// 自动迁移
+	// 自动迁移 - 调整顺序确保被引用的表先创建
 	if err := db.AutoMigrate(
-		&models.Task{},
-		&models.Executor{},
-		&models.TaskExecutor{},
-		&models.TaskExecution{},
-		&models.LoadBalanceState{},
-		&models.SchedulerInstance{},
+		&models.Task{},              // 先创建tasks表
+		&models.Executor{},          // 再创建executors表
+		&models.TaskExecutor{},      // 然后创建task_executors表(引用了tasks和executors)
+		&models.TaskExecution{},     // 再创建task_executions表(引用了tasks和executors)
+		&models.LoadBalanceState{},  // 负载均衡状态表
+		&models.SchedulerInstance{}, // 调度器实例表
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}

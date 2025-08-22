@@ -76,11 +76,11 @@ func (e *ExecutorAPI) List(ctx *gin.Context, req ListExecutorReq) ([]*models.Exe
 			var taskExecutors []models.TaskExecutor
 			err := e.db.
 				Preload("Task").
-				Where("executor_id = ?", exe.ID).
+				Where("executor_name = ?", exe.Name).
 				Find(&taskExecutors).Error
 			if err != nil {
 				e.logger.Error("failed to load task executors",
-					zap.String("executor_id", exe.ID),
+					zap.String("executor_name", exe.Name),
 					zap.Error(err))
 				continue
 			}
@@ -141,9 +141,18 @@ func (e *ExecutorAPI) UpdateStatus(ctx *gin.Context, id string, req UpdateExecut
 
 func (e *ExecutorAPI) Delete(ctx *gin.Context, id string) (string, error) {
 	if err := e.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("executor_id = ?", id).Delete(&models.TaskExecutor{}).Error; err != nil {
+		// 先查找执行器获取其名称
+		var exec models.Executor
+		if err := tx.Where("id = ?", id).First(&exec).Error; err != nil {
 			return err
 		}
+
+		// 删除基于executor_name的TaskExecutor关联
+		if err := tx.Where("executor_name = ?", exec.Name).Delete(&models.TaskExecutor{}).Error; err != nil {
+			return err
+		}
+
+		// 删除执行器本身
 		if err := tx.Where("id = ?", id).Delete(&models.Executor{}).Error; err != nil {
 			return err
 		}
@@ -210,9 +219,9 @@ func (e *ExecutorAPI) Register(ctx *gin.Context, req RegisterExecutorReq) (*mode
 	// 注册任务
 	if len(req.Tasks) > 0 {
 		for _, taskDef := range req.Tasks {
-			if err := e.registerTask(executor.ID, taskDef); err != nil {
+			if err := e.registerTask(executor.Name, taskDef); err != nil {
 				e.logger.Error("failed to register task",
-					zap.String("executor_id", executor.ID),
+					zap.String("executor_name", executor.Name),
 					zap.String("task_name", taskDef.Name),
 					zap.Error(err))
 				// 继续处理其他任务，不因为单个任务失败而终止
@@ -229,7 +238,7 @@ func (e *ExecutorAPI) Register(ctx *gin.Context, req RegisterExecutorReq) (*mode
 	return &executor, nil
 }
 
-func (e *ExecutorAPI) registerTask(executorID string, taskDef TaskDefinition) error {
+func (e *ExecutorAPI) registerTask(executorName string, taskDef TaskDefinition) error {
 	// 查找任务（按名称）
 	var task models.Task
 	err := e.db.Where("name = ?", taskDef.Name).First(&task).Error
@@ -277,16 +286,16 @@ func (e *ExecutorAPI) registerTask(executorID string, taskDef TaskDefinition) er
 
 	// 检查任务执行器关联是否已存在
 	var taskExecutor models.TaskExecutor
-	err = e.db.Where("task_id = ? AND executor_id = ?", task.ID, executorID).First(&taskExecutor).Error
+	err = e.db.Where("task_id = ? AND executor_name = ?", task.ID, executorName).First(&taskExecutor).Error
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// 创建新的任务执行器关联
 		taskExecutor = models.TaskExecutor{
-			ID:         uuid.New().String(),
-			TaskID:     task.ID,
-			ExecutorID: executorID,
-			Priority:   1, // 默认优先级
-			Weight:     1, // 默认权重
+			ID:           uuid.New().String(),
+			TaskID:       task.ID,
+			ExecutorName: executorName,
+			Priority:     1, // 默认优先级
+			Weight:       1, // 默认权重
 		}
 
 		if err := e.db.Create(&taskExecutor).Error; err != nil {
@@ -295,7 +304,7 @@ func (e *ExecutorAPI) registerTask(executorID string, taskDef TaskDefinition) er
 
 		e.logger.Info("task executor association created",
 			zap.String("task_id", task.ID),
-			zap.String("executor_id", executorID))
+			zap.String("executor_name", executorName))
 	} else if err != nil {
 		return fmt.Errorf("failed to query task executor: %w", err)
 	}

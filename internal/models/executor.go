@@ -22,7 +22,7 @@ type Executor struct {
 	CreatedAt           time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt           time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 
-	TaskExecutors []TaskExecutor `gorm:"foreignKey:ExecutorID" json:"task_executors,omitempty"`
+	TaskExecutors []TaskExecutor `gorm:"foreignKey:ExecutorName;references:Name" json:"task_executors,omitempty"`
 }
 
 func (e *Executor) GetHealthCheckURL() string {
@@ -58,15 +58,16 @@ func (Executor) TableName() string {
 }
 
 type TaskExecutor struct {
-	ID         string    `gorm:"primaryKey;size:64" json:"id"`
-	TaskID     string    `gorm:"size:64;not null;uniqueIndex:uk_task_executor;index" json:"task_id"`
-	ExecutorID string    `gorm:"size:64;not null;uniqueIndex:uk_task_executor" json:"executor_id"`
-	Priority   int       `gorm:"default:0" json:"priority"`
-	Weight     int       `gorm:"default:1" json:"weight"`
-	CreatedAt  time.Time `gorm:"autoCreateTime" json:"created_at"`
+	ID           string    `gorm:"primaryKey;size:64" json:"id"`
+	TaskID       string    `gorm:"size:64;not null;uniqueIndex:uk_task_executor;index" json:"task_id"`
+	ExecutorName string    `gorm:"size:255;not null;uniqueIndex:uk_task_executor;index:idx_executor_name" json:"executor_name"`
+	Priority     int       `gorm:"default:0" json:"priority"`
+	Weight       int       `gorm:"default:1" json:"weight"`
+	CreatedAt    time.Time `gorm:"autoCreateTime" json:"created_at"`
 
+	// 关联关系 - 保留关联以支持预加载，但不创建数据库外键约束
 	Task     *Task     `gorm:"foreignKey:TaskID;constraint:OnDelete:CASCADE" json:"task,omitempty"`
-	Executor *Executor `gorm:"foreignKey:ExecutorID;constraint:OnDelete:CASCADE" json:"executor,omitempty"`
+	Executor *Executor `gorm:"foreignKey:ExecutorName;references:Name" json:"executor,omitempty"`
 }
 
 func (TaskExecutor) TableName() string {
@@ -84,7 +85,7 @@ func NewExecutorRepo(db *gorm.DB) *ExecutorRepo {
 func (r *ExecutorRepo) GetHealthyExecutors(ctx context.Context, taskID string) ([]*Executor, error) {
 	var executors []*Executor
 	query := r.db.WithContext(ctx).
-		Joins("JOIN task_executors ON task_executors.executor_id = executors.id").
+		Joins("JOIN task_executors ON task_executors.executor_name = executors.name").
 		Where("task_executors.task_id = ?", taskID).
 		Where("executors.status = ?", ExecutorStatusOnline).
 		Where("executors.is_healthy = ?", true).
