@@ -13,8 +13,8 @@ import (
 
 	"github.com/jobs/scheduler/internal/api"
 	"github.com/jobs/scheduler/internal/executor"
+	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/internal/scheduler"
-	"github.com/jobs/scheduler/internal/storage"
 	"github.com/jobs/scheduler/pkg/config"
 	"github.com/jobs/scheduler/pkg/logger"
 	"go.uber.org/zap"
@@ -43,7 +43,7 @@ func main() {
 		zap.String("instance_id", cfg.Scheduler.InstanceID))
 
 	// 创建存储
-	storageConfig := storage.Config{
+	storageConfig := orm.Config{
 		Host:                  cfg.Database.Host,
 		Port:                  cfg.Database.Port,
 		Database:              cfg.Database.Database,
@@ -54,7 +54,7 @@ func main() {
 		ConnectionMaxLifetime: cfg.Database.ConnectionMaxLifetime,
 	}
 
-	db, err := storage.New(storageConfig)
+	db, err := orm.New(storageConfig)
 	if err != nil {
 		zapLogger.Fatal("Failed to connect to database", zap.Error(err))
 	}

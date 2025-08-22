@@ -8,18 +8,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/storage"
+	"github.com/jobs/scheduler/internal/orm"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
 type Manager struct {
-	storage *storage.Storage
+	storage *orm.Storage
 	logger  *zap.Logger
 	mu      sync.RWMutex
 }
 
-func NewManager(storage *storage.Storage, logger *zap.Logger) *Manager {
+func NewManager(storage *orm.Storage, logger *zap.Logger) *Manager {
 	return &Manager{
 		storage: storage,
 		logger:  logger,

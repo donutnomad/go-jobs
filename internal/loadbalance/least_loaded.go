@@ -5,15 +5,15 @@ import (
 	"fmt"
 
 	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/storage"
+	"github.com/jobs/scheduler/internal/orm"
 )
 
 // LeastLoadedStrategy 最少负载策略
 type LeastLoadedStrategy struct {
-	storage *storage.Storage
+	storage *orm.Storage
 }
 
-func NewLeastLoadedStrategy(storage *storage.Storage) *LeastLoadedStrategy {
+func NewLeastLoadedStrategy(storage *orm.Storage) *LeastLoadedStrategy {
 	return &LeastLoadedStrategy{
 		storage: storage,
 	}

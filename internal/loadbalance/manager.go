@@ -5,17 +5,17 @@ import (
 	"fmt"
 
 	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/storage"
+	"github.com/jobs/scheduler/internal/orm"
 )
 
 // Manager 负载均衡管理器
 type Manager struct {
-	storage    *storage.Storage
+	storage    *orm.Storage
 	strategies map[models.LoadBalanceStrategy]Strategy
 }
 
 // NewManager 创建负载均衡管理器
-func NewManager(storage *storage.Storage) *Manager {
+func NewManager(storage *orm.Storage) *Manager {
 	m := &Manager{
 		storage:    storage,
 		strategies: make(map[models.LoadBalanceStrategy]Strategy),

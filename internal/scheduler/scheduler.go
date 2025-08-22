@@ -11,7 +11,7 @@ import (
 	"github.com/jobs/scheduler/internal/executor"
 	"github.com/jobs/scheduler/internal/loadbalance"
 	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/storage"
+	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/pkg/config"
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
@@ -21,7 +21,7 @@ import (
 // Scheduler 任务调度器
 type Scheduler struct {
 	config          config.SchedulerConfig
-	storage         *storage.Storage
+	storage         *orm.Storage
 	sqlDB           *sql.DB
 	locker          *Locker
 	cron            *cron.Cron
@@ -40,7 +40,7 @@ type Scheduler struct {
 }
 
 // New 创建调度器
-func New(cfg config.Config, storage *storage.Storage, logger *zap.Logger) (*Scheduler, error) {
+func New(cfg config.Config, storage *orm.Storage, logger *zap.Logger) (*Scheduler, error) {
 	sqlDB, err := storage.DB().DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sql.DB: %w", err)

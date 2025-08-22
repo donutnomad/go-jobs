@@ -6,17 +6,17 @@ import (
 	"sync"
 
 	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/storage"
+	"github.com/jobs/scheduler/internal/orm"
 	"gorm.io/gorm"
 )
 
 // WeightedRoundRobinStrategy 加权轮询策略
 type WeightedRoundRobinStrategy struct {
-	storage *storage.Storage
+	storage *orm.Storage
 	mu      sync.Mutex
 }
 
-func NewWeightedRoundRobinStrategy(storage *storage.Storage) *WeightedRoundRobinStrategy {
+func NewWeightedRoundRobinStrategy(storage *orm.Storage) *WeightedRoundRobinStrategy {
 	return &WeightedRoundRobinStrategy{
 		storage: storage,
 	}

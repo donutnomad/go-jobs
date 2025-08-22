@@ -6,12 +6,12 @@ import (
 	"sync"
 
 	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/storage"
+	"github.com/jobs/scheduler/internal/orm"
 )
 
 // OptimizedLeastLoadedStrategy 优化的最少负载策略
 type OptimizedLeastLoadedStrategy struct {
-	storage *storage.Storage
+	storage *orm.Storage
 	cache   *LoadCache
 }
 
@@ -21,7 +21,7 @@ type LoadCache struct {
 	loads map[string]int64
 }
 
-func NewOptimizedLeastLoadedStrategy(storage *storage.Storage) *OptimizedLeastLoadedStrategy {
+func NewOptimizedLeastLoadedStrategy(storage *orm.Storage) *OptimizedLeastLoadedStrategy {
 	return &OptimizedLeastLoadedStrategy{
 		storage: storage,
 		cache: &LoadCache{

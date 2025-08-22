@@ -6,17 +6,17 @@ import (
 	"sync"
 
 	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/storage"
+	"github.com/jobs/scheduler/internal/orm"
 	"gorm.io/gorm"
 )
 
 // StickyStrategy 粘性策略 - 始终选择同一个执行器
 type StickyStrategy struct {
-	storage *storage.Storage
+	storage *orm.Storage
 	mu      sync.Mutex
 }
 
-func NewStickyStrategy(storage *storage.Storage) *StickyStrategy {
+func NewStickyStrategy(storage *orm.Storage) *StickyStrategy {
 	return &StickyStrategy{
 		storage: storage,
 	}

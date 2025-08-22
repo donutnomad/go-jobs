@@ -12,7 +12,7 @@ import (
 	"github.com/jobs/scheduler/internal/executor"
 	"github.com/jobs/scheduler/internal/loadbalance"
 	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/storage"
+	"github.com/jobs/scheduler/internal/orm"
 	"go.uber.org/zap"
 )
 
@@ -76,7 +76,7 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 
 // TaskRunner 任务执行器
 type TaskRunner struct {
-	storage         *storage.Storage
+	storage         *orm.Storage
 	executorManager *executor.Manager
 	lbManager       *loadbalance.Manager
 	logger          *zap.Logger
@@ -103,7 +103,7 @@ type taskJob struct {
 
 // NewTaskRunner 创建任务执行器
 func NewTaskRunner(
-	storage *storage.Storage,
+	storage *orm.Storage,
 	executorManager *executor.Manager,
 	lbManager *loadbalance.Manager,
 	logger *zap.Logger,

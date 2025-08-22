@@ -6,17 +6,17 @@ import (
 	"sync"
 
 	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/storage"
+	"github.com/jobs/scheduler/internal/orm"
 	"gorm.io/gorm"
 )
 
 // RoundRobinStrategy 轮询策略
 type RoundRobinStrategy struct {
-	storage *storage.Storage
+	storage *orm.Storage
 	mu      sync.Mutex
 }
 
-func NewRoundRobinStrategy(storage *storage.Storage) *RoundRobinStrategy {
+func NewRoundRobinStrategy(storage *orm.Storage) *RoundRobinStrategy {
 	return &RoundRobinStrategy{
 		storage: storage,
 	}

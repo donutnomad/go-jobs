@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/storage"
+	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/pkg/config"
 	"go.uber.org/zap"
 )
@@ -20,7 +20,7 @@ type TaskRunnerInterface interface {
 }
 
 type HealthChecker struct {
-	storage    *storage.Storage
+	storage    *orm.Storage
 	logger     *zap.Logger
 	config     config.HealthCheckConfig
 	httpClient *http.Client
@@ -29,7 +29,7 @@ type HealthChecker struct {
 	taskRunner TaskRunnerInterface // 添加TaskRunner引用
 }
 
-func NewHealthChecker(storage *storage.Storage, logger *zap.Logger, config config.HealthCheckConfig) *HealthChecker {
+func NewHealthChecker(storage *orm.Storage, logger *zap.Logger, config config.HealthCheckConfig) *HealthChecker {
 	return &HealthChecker{
 		storage: storage,
 		logger:  logger,
