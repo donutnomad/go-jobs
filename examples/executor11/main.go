@@ -12,41 +12,41 @@ import (
 
 // ExecuteRequest 执行请求
 type ExecuteRequest struct {
-	ExecutionID string                 `json:"execution_id"`
-	TaskID      string                 `json:"task_id"`
-	TaskName    string                 `json:"task_name"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	CallbackURL string                 `json:"callback_url"`
+	ExecutionID string         `json:"execution_id"`
+	TaskID      string         `json:"task_id"`
+	TaskName    string         `json:"task_name"`
+	Parameters  map[string]any `json:"parameters"`
+	CallbackURL string         `json:"callback_url"`
 }
 
 // CallbackRequest 回调请求
 type CallbackRequest struct {
-	ExecutionID string                 `json:"execution_id"`
-	Status      string                 `json:"status"`
-	Result      map[string]interface{} `json:"result"`
-	Logs        string                 `json:"logs"`
+	ExecutionID string         `json:"execution_id"`
+	Status      string         `json:"status"`
+	Result      map[string]any `json:"result"`
+	Logs        string         `json:"logs"`
 }
 
 // TaskDefinition 任务定义
 type TaskDefinition struct {
-	Name                string                 `json:"name"`
-	ExecutionMode       string                 `json:"execution_mode"`
-	CronExpression      string                 `json:"cron_expression"`
-	LoadBalanceStrategy string                 `json:"load_balance_strategy"`
-	MaxRetry            int                    `json:"max_retry"`
-	TimeoutSeconds      int                    `json:"timeout_seconds"`
-	Parameters          map[string]interface{} `json:"parameters"`
-	Status              string                 `json:"status"`
+	Name                string         `json:"name"`
+	ExecutionMode       string         `json:"execution_mode"`
+	CronExpression      string         `json:"cron_expression"`
+	LoadBalanceStrategy string         `json:"load_balance_strategy"`
+	MaxRetry            int            `json:"max_retry"`
+	TimeoutSeconds      int            `json:"timeout_seconds"`
+	Parameters          map[string]any `json:"parameters"`
+	Status              string         `json:"status"`
 }
 
 // RegisterRequest 注册请求
 type RegisterRequest struct {
-	ExecutorID     string                 `json:"executor_id"`
-	ExecutorName   string                 `json:"executor_name"`
-	ExecutorURL    string                 `json:"executor_url"`
-	HealthCheckURL string                 `json:"health_check_url"`
-	Tasks          []TaskDefinition       `json:"tasks"`
-	Metadata       map[string]interface{} `json:"metadata"`
+	ExecutorID     string           `json:"executor_id"`
+	ExecutorName   string           `json:"executor_name"`
+	ExecutorURL    string           `json:"executor_url"`
+	HealthCheckURL string           `json:"health_check_url"`
+	Tasks          []TaskDefinition `json:"tasks"`
+	Metadata       map[string]any   `json:"metadata"`
 }
 
 const (
@@ -87,7 +87,7 @@ func registerToScheduler() error {
 			LoadBalanceStrategy: "round_robin",
 			MaxRetry:            3,
 			TimeoutSeconds:      300,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"source_db": "mysql_primary",
 				"target_db": "mysql_replica",
 			},
@@ -100,7 +100,7 @@ func registerToScheduler() error {
 			LoadBalanceStrategy: "least_loaded",
 			MaxRetry:            2,
 			TimeoutSeconds:      600,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"cleanup_days": 7,
 				"path":         "/tmp/logs",
 			},
@@ -113,7 +113,7 @@ func registerToScheduler() error {
 			LoadBalanceStrategy: "random",
 			MaxRetry:            1,
 			TimeoutSeconds:      60,
-			Parameters:          map[string]interface{}{},
+			Parameters:          map[string]any{},
 			Status:              "active", // 活跃状态，立即可执行
 		},
 	}
@@ -125,7 +125,7 @@ func registerToScheduler() error {
 		ExecutorURL:    executorURL,
 		HealthCheckURL: executorURL + "/health",
 		Tasks:          tasks,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"version":     "1.0.0",
 			"language":    "go",
 			"description": "示例执行器，演示自动注册功能",
@@ -151,7 +151,7 @@ func registerToScheduler() error {
 
 	// 检查响应状态
 	if resp.StatusCode != http.StatusOK {
-		var errorResp map[string]interface{}
+		var errorResp map[string]any
 		if err := json.NewDecoder(resp.Body).Decode(&errorResp); err == nil {
 			return fmt.Errorf("registration failed with status %d: %v", resp.StatusCode, errorResp)
 		}
@@ -159,7 +159,7 @@ func registerToScheduler() error {
 	}
 
 	// 解析响应
-	var response map[string]interface{}
+	var response map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
@@ -197,7 +197,7 @@ func executeHandler(w http.ResponseWriter, r *http.Request) {
 
 		// 根据任务名称执行不同的逻辑
 		status := "success"
-		result := make(map[string]interface{})
+		result := make(map[string]any)
 		logs := ""
 
 		switch req.TaskName {

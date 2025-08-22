@@ -2,6 +2,7 @@ package loadbalance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -66,7 +67,7 @@ func (s *WeightedRoundRobinStrategy) Select(ctx context.Context, taskID string, 
 	// 获取或创建负载均衡状态
 	var state models.LoadBalanceState
 	err = s.storage.DB().Where("task_id = ?", taskID).First(&state).Error
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		state = models.LoadBalanceState{
 			TaskID:          taskID,
 			RoundRobinIndex: 0,
@@ -107,7 +108,7 @@ func (s *WeightedRoundRobinStrategy) selectDefault(ctx context.Context, taskID s
 	// 获取或创建负载均衡状态
 	var state models.LoadBalanceState
 	err := s.storage.DB().Where("task_id = ?", taskID).First(&state).Error
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		state = models.LoadBalanceState{
 			TaskID:          taskID,
 			RoundRobinIndex: 0,

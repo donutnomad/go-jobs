@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jobs/scheduler/internal/executor"
 	"github.com/jobs/scheduler/internal/loadbalance"
 	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
@@ -76,11 +75,10 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 
 // TaskRunner 任务执行器
 type TaskRunner struct {
-	storage         *orm.Storage
-	executorManager *executor.Manager
-	lbManager       *loadbalance.Manager
-	logger          *zap.Logger
-	httpClient      *http.Client
+	storage    *orm.Storage
+	lbManager  *loadbalance.Manager
+	logger     *zap.Logger
+	httpClient *http.Client
 
 	maxWorkers int
 	taskCh     chan *taskJob
@@ -104,16 +102,14 @@ type taskJob struct {
 // NewTaskRunner 创建任务执行器
 func NewTaskRunner(
 	storage *orm.Storage,
-	executorManager *executor.Manager,
 	lbManager *loadbalance.Manager,
 	logger *zap.Logger,
 	maxWorkers int,
 ) *TaskRunner {
 	return &TaskRunner{
-		storage:         storage,
-		executorManager: executorManager,
-		lbManager:       lbManager,
-		logger:          logger,
+		storage:   storage,
+		lbManager: lbManager,
+		logger:    logger,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -231,7 +227,7 @@ func (r *TaskRunner) executeTask(task *models.Task, execution *models.TaskExecut
 		}
 
 		// 获取健康的执行器
-		executors, err := r.executorManager.GetHealthyExecutors(ctx, task.ID)
+		executors, err := models.NewExecutorRepo(r.storage.DB()).GetHealthyExecutors(ctx, task.ID)
 		if err != nil || len(executors) == 0 {
 			lastErr = fmt.Errorf("no healthy executors available")
 			continue
@@ -325,7 +321,7 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *models.Task, execut
 		// 构建请求
 		url := fmt.Sprintf("%s/execute", exec.BaseURL)
 
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"execution_id": execution.ID,
 			"task_id":      task.ID,
 			"task_name":    task.Name,
@@ -447,8 +443,15 @@ func (r *TaskRunner) handleTimeout(executionID string) {
 	}
 }
 
+type ExecutionCallbackRequest struct {
+	ExecutionID string                 `json:"execution_id" binding:"required"`
+	Status      models.ExecutionStatus `json:"status" binding:"required"`
+	Result      map[string]any         `json:"result"`
+	Logs        string                 `json:"logs"`
+}
+
 // HandleCallback 处理执行回调
-func (r *TaskRunner) HandleCallback(ctx context.Context, executionID string, req executor.ExecutionCallbackRequest) error {
+func (r *TaskRunner) HandleCallback(ctx context.Context, executionID string, req ExecutionCallbackRequest) error {
 	// 取消超时定时器（如果存在）
 	r.cancelTimeout(executionID)
 

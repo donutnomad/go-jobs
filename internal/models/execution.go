@@ -4,18 +4,6 @@ import (
 	"time"
 )
 
-type ExecutionStatus string
-
-const (
-	ExecutionStatusPending   ExecutionStatus = "pending"
-	ExecutionStatusRunning   ExecutionStatus = "running"
-	ExecutionStatusSuccess   ExecutionStatus = "success"
-	ExecutionStatusFailed    ExecutionStatus = "failed"
-	ExecutionStatusTimeout   ExecutionStatus = "timeout"
-	ExecutionStatusSkipped   ExecutionStatus = "skipped"
-	ExecutionStatusCancelled ExecutionStatus = "cancelled"
-)
-
 type TaskExecution struct {
 	ID            string          `gorm:"primaryKey;size:64" json:"id"`
 	TaskID        string          `gorm:"size:64;not null;index:idx_task_status" json:"task_id"`

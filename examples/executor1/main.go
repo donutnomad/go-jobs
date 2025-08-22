@@ -12,19 +12,19 @@ import (
 
 // ExecuteRequest 执行请求
 type ExecuteRequest struct {
-	ExecutionID string                 `json:"execution_id"`
-	TaskID      string                 `json:"task_id"`
-	TaskName    string                 `json:"task_name"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	CallbackURL string                 `json:"callback_url"`
+	ExecutionID string         `json:"execution_id"`
+	TaskID      string         `json:"task_id"`
+	TaskName    string         `json:"task_name"`
+	Parameters  map[string]any `json:"parameters"`
+	CallbackURL string         `json:"callback_url"`
 }
 
 // CallbackRequest 回调请求
 type CallbackRequest struct {
-	ExecutionID string                 `json:"execution_id"`
-	Status      string                 `json:"status"`
-	Result      map[string]interface{} `json:"result"`
-	Logs        string                 `json:"logs"`
+	ExecutionID string         `json:"execution_id"`
+	Status      string         `json:"status"`
+	Result      map[string]any `json:"result"`
+	Logs        string         `json:"logs"`
 }
 
 func main() {
@@ -76,7 +76,7 @@ func executeHandler(w http.ResponseWriter, r *http.Request) {
 		callback := CallbackRequest{
 			ExecutionID: req.ExecutionID,
 			Status:      status,
-			Result: map[string]interface{}{
+			Result: map[string]any{
 				"duration":   duration.Seconds(),
 				"parameters": req.Parameters,
 			},

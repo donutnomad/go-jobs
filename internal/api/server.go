@@ -3,7 +3,6 @@ package api
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/jobs/scheduler/internal/api/middleware"
-	"github.com/jobs/scheduler/internal/executor"
 	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/internal/scheduler"
 	"go.uber.org/zap"
@@ -16,7 +15,6 @@ type Server struct {
 func NewServer(
 	storage *orm.Storage,
 	scheduler *scheduler.Scheduler,
-	executorManager *executor.Manager,
 	taskRunner *scheduler.TaskRunner,
 	logger *zap.Logger,
 ) *Server {
@@ -28,7 +26,7 @@ func NewServer(
 	s.router.Use(middleware.Cors())
 
 	NewTaskAPIWrap(NewTaskAPI(storage, scheduler)).BindAll(s.router)
-	NewExecutorAPIWrap(NewExecutorAPI(storage, executorManager, logger)).BindAll(s.router)
+	NewExecutorAPIWrap(NewExecutorAPI(storage, logger)).BindAll(s.router)
 	NewExecutionAPIWrap(NewExecutionAPI(storage, taskRunner, logger)).BindAll(s.router)
 	NewCommonAPIWrap(NewCommonAPI(storage)).BindAll(s.router)
 

@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/jobs/scheduler/internal/executor"
 	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/internal/scheduler"
@@ -43,7 +42,7 @@ type ITaskAPI interface {
 	// TriggerTask 手动触发任务
 	// 手动触发指定id的任务
 	// @POST(api/v1/tasks/{id}/trigger)
-	TriggerTask(ctx *gin.Context, id string, req executor.TriggerTaskRequest) (models.TaskExecution, error)
+	TriggerTask(ctx *gin.Context, id string, req TriggerTaskRequest) (models.TaskExecution, error)
 
 	// Pause 暂停任务
 	// 暂停指定id的任务
@@ -78,27 +77,8 @@ type ITaskAPI interface {
 	// GetTaskStats 获取任务统计
 	// 获取指定id的任务统计
 	// @GET(api/v1/tasks/{id}/stats)
-	GetTaskStats(ctx *gin.Context, id string) (TaskStats, error)
+	GetTaskStats(ctx *gin.Context, id string) (TaskStatsResp, error)
 }
-
-type TaskStats struct {
-	SuccessRate24h   float64            `json:"success_rate_24h"`
-	Total24h         int64              `json:"total_24h"`
-	Success24h       int64              `json:"success_24h"`
-	Health90d        HealthStatus       `json:"health_90d"`
-	RecentExecutions []RecentExecutions `json:"recent_executions"`
-	DailyStats90d    []map[string]any   `json:"daily_stats_90d"`
-}
-
-type RecentExecutions struct {
-	Date        string  `json:"date"`
-	Total       int     `json:"total"`
-	Success     int     `json:"success"`
-	Failed      int     `json:"failed"`
-	SuccessRate float64 `json:"success_rate"`
-}
-
-var _ ITaskAPI = (*TaskAPI)(nil)
 
 type TaskAPI struct {
 	storage   *orm.Storage
@@ -237,7 +217,7 @@ func (t *TaskAPI) Delete(ctx *gin.Context, id string) (string, error) {
 	return "task deleted successfully", nil
 }
 
-func (t *TaskAPI) TriggerTask(ctx *gin.Context, id string, req executor.TriggerTaskRequest) (models.TaskExecution, error) {
+func (t *TaskAPI) TriggerTask(ctx *gin.Context, id string, req TriggerTaskRequest) (models.TaskExecution, error) {
 	execution, err := t.scheduler.TriggerTask(ctx.Request.Context(), id, req.Parameters)
 	if err != nil {
 		return models.TaskExecution{}, errors.Join(err, errors.New("trigger task failed"))
@@ -331,8 +311,8 @@ func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id string, req AssignExecutor
 	}
 
 	// 验证执行器是否存在
-	var executor models.Executor
-	if err := t.storage.DB().Where("id = ?", req.ExecutorID).First(&executor).Error; err != nil {
+	var exec models.Executor
+	if err := t.storage.DB().Where("id = ?", req.ExecutorID).First(&exec).Error; err != nil {
 		return models.TaskExecutor{}, errors.Join(err, errors.New("executor not found"))
 	}
 
@@ -396,7 +376,7 @@ func (t *TaskAPI) UnassignExecutor(ctx *gin.Context, id string, executorID strin
 	return "executor unassigned", nil
 }
 
-func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID string) (TaskStats, error) {
+func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID string) (TaskStatsResp, error) {
 	// 获取24小时成功率
 	var successRate24h float64
 	var totalCount24h int64
@@ -409,7 +389,7 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID string) (TaskStats, erro
 	if err := t.storage.DB().Model(&models.TaskExecution{}).
 		Where("task_id = ? AND created_at >= ?", taskID, since24h).
 		Count(&totalCount24h).Error; err != nil {
-		return TaskStats{}, errors.Join(err, errors.New("failed to get 24h total count"))
+		return TaskStatsResp{}, errors.Join(err, errors.New("failed to get 24h total count"))
 	}
 
 	// 获取24小时内的成功执行次数
@@ -417,7 +397,7 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID string) (TaskStats, erro
 		Where("task_id = ? AND status = ? AND created_at >= ?",
 			taskID, models.ExecutionStatusSuccess, since24h).
 		Count(&successCount24h).Error; err != nil {
-		return TaskStats{}, errors.Join(err, errors.New("failed to get 24h success count"))
+		return TaskStatsResp{}, errors.Join(err, errors.New("failed to get 24h success count"))
 	}
 
 	if totalCount24h > 0 {
@@ -504,7 +484,7 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID string) (TaskStats, erro
 		})
 	}
 
-	return TaskStats{
+	return TaskStatsResp{
 		SuccessRate24h:   successRate24h,
 		Total24h:         totalCount24h,
 		Success24h:       successCount24h,

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jobs/scheduler/internal/executor"
 	"github.com/jobs/scheduler/internal/loadbalance"
 	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
@@ -20,15 +19,14 @@ import (
 
 // Scheduler 任务调度器
 type Scheduler struct {
-	config          config.SchedulerConfig
-	storage         *orm.Storage
-	sqlDB           *sql.DB
-	locker          *Locker
-	cron            *cron.Cron
-	executorManager *executor.Manager
-	lbManager       *loadbalance.Manager
-	healthChecker   *executor.HealthChecker
-	logger          *zap.Logger
+	config        config.SchedulerConfig
+	storage       *orm.Storage
+	sqlDB         *sql.DB
+	locker        *Locker
+	cron          *cron.Cron
+	lbManager     *loadbalance.Manager
+	healthChecker *HealthChecker
+	logger        *zap.Logger
 
 	instanceID string
 	isLeader   bool
@@ -47,27 +45,25 @@ func New(cfg config.Config, storage *orm.Storage, logger *zap.Logger) (*Schedule
 	}
 
 	s := &Scheduler{
-		config:          cfg.Scheduler,
-		storage:         storage,
-		sqlDB:           sqlDB,
-		logger:          logger,
-		instanceID:      cfg.Scheduler.InstanceID,
-		isLeader:        false,
-		stopCh:          make(chan struct{}),
-		executorManager: executor.NewManager(storage, logger),
-		lbManager:       loadbalance.NewManager(storage),
-		healthChecker:   executor.NewHealthChecker(storage, logger, cfg.HealthCheck),
-		cron:            cron.New(cron.WithSeconds()),
+		config:     cfg.Scheduler,
+		storage:    storage,
+		sqlDB:      sqlDB,
+		logger:     logger,
+		instanceID: cfg.Scheduler.InstanceID,
+		isLeader:   false,
+		stopCh:     make(chan struct{}),
+		lbManager:  loadbalance.NewManager(storage),
+		cron:       cron.New(cron.WithSeconds()),
 	}
 
 	// 创建分布式锁
 	s.locker = NewLocker(sqlDB, cfg.Scheduler.LockKey, cfg.Scheduler.LockTimeout, logger)
 
 	// 创建任务执行器
-	s.taskRunner = NewTaskRunner(storage, s.executorManager, s.lbManager, logger, cfg.Scheduler.MaxWorkers)
+	s.taskRunner = NewTaskRunner(storage, s.lbManager, logger, cfg.Scheduler.MaxWorkers)
 
-	// 设置健康检查器的TaskRunner引用
-	s.healthChecker.SetTaskRunner(s.taskRunner)
+	// Executor健康检查
+	s.healthChecker = NewHealthChecker(storage, logger, cfg.HealthCheck, s.taskRunner)
 
 	// 注册调度器实例
 	if err := s.registerInstance(); err != nil {
@@ -381,7 +377,7 @@ func (s *Scheduler) checkExecutionMode(ctx context.Context, task *models.Task) (
 }
 
 // TriggerTask 手动触发任务
-func (s *Scheduler) TriggerTask(ctx context.Context, taskID string, parameters map[string]interface{}) (*models.TaskExecution, error) {
+func (s *Scheduler) TriggerTask(ctx context.Context, taskID string, parameters map[string]any) (*models.TaskExecution, error) {
 	// 获取任务
 	var task models.Task
 	if err := s.storage.DB().Where("id = ?", taskID).First(&task).Error; err != nil {

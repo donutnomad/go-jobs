@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/jobs/scheduler/internal/api"
-	"github.com/jobs/scheduler/internal/executor"
 	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/internal/scheduler"
 	"github.com/jobs/scheduler/pkg/config"
@@ -71,11 +70,8 @@ func main() {
 		zapLogger.Fatal("Failed to start scheduler", zap.Error(err))
 	}
 
-	// 创建执行器管理器
-	executorManager := executor.NewManager(db, zapLogger)
-
 	// 创建API服务器
-	apiServer := api.NewServer(db, sched, executorManager, sched.GetTaskRunner(), zapLogger)
+	apiServer := api.NewServer(db, sched, sched.GetTaskRunner(), zapLogger)
 
 	// 启动HTTP服务器
 	httpServer := &http.Server{

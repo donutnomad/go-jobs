@@ -9,8 +9,8 @@ import (
 	strings "strings"
 
 	gin "github.com/gin-gonic/gin"
-	executor "github.com/jobs/scheduler/internal/executor"
 	models "github.com/jobs/scheduler/internal/models"
+	scheduler "github.com/jobs/scheduler/internal/scheduler"
 )
 
 func NewCommonAPIWrap(inner ICommonAPI) *CommonAPIWrap {
@@ -174,12 +174,12 @@ func (a *ExecutionAPIWrap) Stats(ctx *gin.Context) {
 // @Description 执行指定id的执行回调
 // @Produce json
 // @Param id path string true "id"
-// @Param req body executor.ExecutionCallbackRequest true "req"
+// @Param req body scheduler.ExecutionCallbackRequest true "req"
 // @Success 200 {object} string
 // @Router api/v1/executions/{id}/callback [post]
 func (a *ExecutionAPIWrap) Callback(ctx *gin.Context) {
 	id := ctx.Param("id")
-	var req executor.ExecutionCallbackRequest
+	var req scheduler.ExecutionCallbackRequest
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
@@ -279,11 +279,11 @@ func (a *ExecutorAPIWrap) Get(ctx *gin.Context) {
 // @Summary 注册执行器
 // @Description 注册一个新执行器
 // @Produce json
-// @Param req body executor.RegisterRequest true "req"
+// @Param req body RegisterExecutorReq true "req"
 // @Success 200 {object} *models.Executor
 // @Router api/v1/executors/register [post]
 func (a *ExecutorAPIWrap) Register(ctx *gin.Context) {
-	var req executor.RegisterRequest
+	var req RegisterExecutorReq
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
@@ -314,12 +314,12 @@ func (a *ExecutorAPIWrap) Update(ctx *gin.Context) {
 // @Description 更新指定id的执行器状态
 // @Produce json
 // @Param id path string true "id"
-// @Param req body executor.UpdateStatusRequest true "req"
+// @Param req body UpdateStatusRequest true "req"
 // @Success 200 {object} string
 // @Router api/v1/executors/{id}/status [put]
 func (a *ExecutorAPIWrap) UpdateStatus(ctx *gin.Context) {
 	id := ctx.Param("id")
-	var req executor.UpdateStatusRequest
+	var req UpdateStatusRequest
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
@@ -472,12 +472,12 @@ func (a *TaskAPIWrap) UpdateTask(ctx *gin.Context) {
 // @Description 手动触发指定id的任务
 // @Produce json
 // @Param id path string true "id"
-// @Param req body executor.TriggerTaskRequest true "req"
+// @Param req body TriggerTaskRequest true "req"
 // @Success 200 {object} models.TaskExecution
 // @Router api/v1/tasks/{id}/trigger [post]
 func (a *TaskAPIWrap) TriggerTask(ctx *gin.Context) {
 	id := ctx.Param("id")
-	var req executor.TriggerTaskRequest
+	var req TriggerTaskRequest
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
@@ -582,12 +582,12 @@ func (a *TaskAPIWrap) UnassignExecutor(ctx *gin.Context) {
 // @Description 获取指定id的任务统计
 // @Produce json
 // @Param id path string true "id"
-// @Success 200 {object} TaskStats
+// @Success 200 {object} TaskStatsResp
 // @Router api/v1/tasks/{id}/stats [get]
 func (a *TaskAPIWrap) GetTaskStats(ctx *gin.Context) {
 	id := ctx.Param("id")
 	result, err := a.inner.GetTaskStats(ctx, id)
-	onGinResponse[TaskStats](ctx, result, err)
+	onGinResponse[TaskStatsResp](ctx, result, err)
 }
 
 func (a *TaskAPIWrap) BindList(router gin.IRoutes, preHandlers ...gin.HandlerFunc) {

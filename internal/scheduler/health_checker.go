@@ -1,4 +1,4 @@
-package executor
+package scheduler
 
 import (
 	"context"
@@ -13,8 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// TaskRunnerInterface 定义TaskRunner的接口，避免循环引用
-type TaskRunnerInterface interface {
+type ITaskRunner interface {
 	RemoveBreaker(executorID string)
 	ResetBreaker(executorID string)
 }
@@ -26,10 +25,10 @@ type HealthChecker struct {
 	httpClient *http.Client
 	stopCh     chan struct{}
 	wg         sync.WaitGroup
-	taskRunner TaskRunnerInterface // 添加TaskRunner引用
+	taskRunner ITaskRunner // 添加TaskRunner引用
 }
 
-func NewHealthChecker(storage *orm.Storage, logger *zap.Logger, config config.HealthCheckConfig) *HealthChecker {
+func NewHealthChecker(storage *orm.Storage, logger *zap.Logger, config config.HealthCheckConfig, taskRunner ITaskRunner) *HealthChecker {
 	return &HealthChecker{
 		storage: storage,
 		logger:  logger,
@@ -37,29 +36,22 @@ func NewHealthChecker(storage *orm.Storage, logger *zap.Logger, config config.He
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
 		},
-		stopCh: make(chan struct{}),
+		stopCh:     make(chan struct{}),
+		taskRunner: taskRunner,
 	}
 }
 
-// SetTaskRunner 设置TaskRunner引用
-func (h *HealthChecker) SetTaskRunner(taskRunner TaskRunnerInterface) {
-	h.taskRunner = taskRunner
-}
-
-// Start 启动健康检查
 func (h *HealthChecker) Start() {
 	if !h.config.Enabled {
 		h.logger.Info("health checker is disabled")
 		return
 	}
-
 	h.wg.Add(1)
 	go h.run()
 	h.logger.Info("health checker started",
 		zap.Duration("interval", h.config.Interval))
 }
 
-// Stop 停止健康检查
 func (h *HealthChecker) Stop() {
 	close(h.stopCh)
 	h.wg.Wait()
@@ -72,7 +64,6 @@ func (h *HealthChecker) run() {
 	ticker := time.NewTicker(h.config.Interval)
 	defer ticker.Stop()
 
-	// 立即执行一次健康检查
 	h.checkAll()
 
 	for {
@@ -184,9 +175,6 @@ func (h *HealthChecker) checkExecutor(executor *models.Executor) {
 			}
 		}
 	}
-
-	// 移除基于心跳的离线判断，完全依赖健康检查结果
-	// 这样确保离线的执行器能够通过健康检查恢复
 
 	// 保存更新
 	if err := h.storage.DB().Save(executor).Error; err != nil {

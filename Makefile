@@ -18,6 +18,7 @@ build:
 	@echo "Building scheduler..."
 	@go build -o bin/scheduler cmd/scheduler/main.go
 	@echo "Build complete: bin/scheduler"
+	go generate ./...
 
 # 运行调度器
 run: build

@@ -1,28 +1,12 @@
 package models
 
 import (
+	"context"
+	"fmt"
 	"time"
+
+	"gorm.io/gorm"
 )
-
-type ExecutorStatus string
-
-const (
-	ExecutorStatusOnline      ExecutorStatus = "online"
-	ExecutorStatusOffline     ExecutorStatus = "offline"
-	ExecutorStatusMaintenance ExecutorStatus = "maintenance"
-)
-
-func (s ExecutorStatus) ToInt() int {
-	switch s {
-	case ExecutorStatusOnline:
-		return 1
-	case ExecutorStatusOffline:
-		return 3
-	case ExecutorStatusMaintenance:
-		return 2
-	}
-	return 0
-}
 
 type Executor struct {
 	ID                  string         `gorm:"primaryKey;size:64" json:"id"`
@@ -39,6 +23,23 @@ type Executor struct {
 	UpdatedAt           time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 
 	TaskExecutors []TaskExecutor `gorm:"foreignKey:ExecutorID" json:"task_executors,omitempty"`
+}
+
+func (e *Executor) GetStopURL() string {
+	return fmt.Sprintf("%s/stop", e.BaseURL)
+}
+
+func (e *Executor) SetStatus(status ExecutorStatus) {
+	e.Status = status
+	if status == ExecutorStatusOnline {
+		e.SetToOnline()
+	}
+}
+
+func (e *Executor) SetToOnline() {
+	e.Status = ExecutorStatusOnline
+	e.IsHealthy = true
+	e.HealthCheckFailures = 0
 }
 
 func (Executor) TableName() string {
@@ -59,4 +60,26 @@ type TaskExecutor struct {
 
 func (TaskExecutor) TableName() string {
 	return "task_executors"
+}
+
+type ExecutorRepo struct {
+	db *gorm.DB
+}
+
+func NewExecutorRepo(db *gorm.DB) *ExecutorRepo {
+	return &ExecutorRepo{db: db}
+}
+
+func (r *ExecutorRepo) GetHealthyExecutors(ctx context.Context, taskID string) ([]*Executor, error) {
+	var executors []*Executor
+	query := r.db.WithContext(ctx).
+		Joins("JOIN task_executors ON task_executors.executor_id = executors.id").
+		Where("task_executors.task_id = ?", taskID).
+		Where("executors.status = ?", ExecutorStatusOnline).
+		Where("executors.is_healthy = ?", true).
+		Order("task_executors.priority DESC")
+	if err := query.Find(&executors).Error; err != nil {
+		return nil, fmt.Errorf("failed to get healthy executors: %w", err)
+	}
+	return executors, nil
 }
