@@ -2,15 +2,15 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/orm"
-	"github.com/jobs/scheduler/internal/scheduler"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 type ITaskAPI interface {
@@ -81,14 +81,14 @@ type ITaskAPI interface {
 }
 
 type TaskAPI struct {
-	storage   *orm.Storage
-	scheduler *scheduler.Scheduler
+	db      *gorm.DB
+	emitter IEmitter
 }
 
-func NewTaskAPI(storage *orm.Storage, scheduler *scheduler.Scheduler) ITaskAPI {
+func NewTaskAPI(db *gorm.DB, emitter IEmitter) ITaskAPI {
 	return &TaskAPI{
-		storage:   storage,
-		scheduler: scheduler,
+		db:      db,
+		emitter: emitter,
 	}
 }
 
@@ -98,7 +98,7 @@ type GetTasksReq struct {
 
 func (t *TaskAPI) List(ctx *gin.Context, req GetTasksReq) ([]models.Task, error) {
 	var tasks []models.Task
-	query := t.storage.DB().Preload("TaskExecutors").Preload("TaskExecutors.Executor")
+	query := t.db.WithContext(ctx).Preload("TaskExecutors").Preload("TaskExecutors.Executor")
 
 	// 支持状态过滤
 	if req.Status != "" {
@@ -115,7 +115,7 @@ func (t *TaskAPI) List(ctx *gin.Context, req GetTasksReq) ([]models.Task, error)
 func (t *TaskAPI) Get(ctx *gin.Context, id string) (models.Task, error) {
 	var task models.Task
 
-	query := t.storage.DB().Preload("TaskExecutors").Preload("TaskExecutors.Executor")
+	query := t.db.WithContext(ctx).Preload("TaskExecutors").Preload("TaskExecutors.Executor")
 
 	if err := query.
 		Where("id = ?", id).
@@ -153,7 +153,7 @@ func (t *TaskAPI) Create(ctx *gin.Context, req CreateTaskReq) (models.Task, erro
 		task.TimeoutSeconds = 300
 	}
 
-	if err := t.storage.DB().Create(&task).Error; err != nil {
+	if err := t.db.Create(&task).Error; err != nil {
 		return models.Task{}, errors.Join(err, errors.New("create task failed"))
 	}
 
@@ -162,7 +162,7 @@ func (t *TaskAPI) Create(ctx *gin.Context, req CreateTaskReq) (models.Task, erro
 
 func (t *TaskAPI) UpdateTask(ctx *gin.Context, taskID string, req UpdateTaskReq) (models.Task, error) {
 	var task models.Task
-	if err := t.storage.DB().Where("id = ?", taskID).First(&task).Error; err != nil {
+	if err := t.db.Where("id = ?", taskID).First(&task).Error; err != nil {
 		return models.Task{}, errors.Join(err, errors.New("task not found"))
 	}
 
@@ -192,7 +192,7 @@ func (t *TaskAPI) UpdateTask(ctx *gin.Context, taskID string, req UpdateTaskReq)
 		task.Status = req.Status
 	}
 
-	if err := t.storage.DB().Save(&task).Error; err != nil {
+	if err := t.db.Save(&task).Error; err != nil {
 		return models.Task{}, errors.Join(err, errors.New("update task failed"))
 	}
 
@@ -201,7 +201,7 @@ func (t *TaskAPI) UpdateTask(ctx *gin.Context, taskID string, req UpdateTaskReq)
 
 func (t *TaskAPI) Delete(ctx *gin.Context, id string) (string, error) {
 	// 软删除，将状态设置为deleted
-	result := t.storage.DB().
+	result := t.db.
 		Model(&models.Task{}).
 		Where("id = ?", id).
 		Update("status", models.TaskStatusDeleted)
@@ -218,9 +218,38 @@ func (t *TaskAPI) Delete(ctx *gin.Context, id string) (string, error) {
 }
 
 func (t *TaskAPI) TriggerTask(ctx *gin.Context, id string, req TriggerTaskRequest) (models.TaskExecution, error) {
-	execution, err := t.scheduler.TriggerTask(ctx.Request.Context(), id, req.Parameters)
+	// 获取任务
+	var task models.Task
+	if err := t.db.Where("id = ?", id).First(&task).Error; err != nil {
+		return models.TaskExecution{}, fmt.Errorf("task not found: %w", err)
+	}
+
+	// 合并参数
+	if req.Parameters != nil {
+		if task.Parameters == nil {
+			task.Parameters = make(models.JSONMap)
+		}
+		for k, v := range req.Parameters {
+			task.Parameters[k] = v
+		}
+	}
+
+	// 创建执行记录
+	execution := &models.TaskExecution{
+		ID:            uuid.New().String(),
+		TaskID:        task.ID,
+		ScheduledTime: time.Now(),
+		Status:        models.ExecutionStatusPending,
+	}
+
+	if err := t.db.Create(execution).Error; err != nil {
+		return models.TaskExecution{}, fmt.Errorf("failed to create execution record: %w", err)
+	}
+
+	err := t.emitter.SubmitNewTask(id, execution.ID)
 	if err != nil {
-		return models.TaskExecution{}, errors.Join(err, errors.New("trigger task failed"))
+		t.db.Where("id = ?", execution).Delete(&models.TaskExecution{})
+		return models.TaskExecution{}, errors.New("failed to submit task to emitter: " + err.Error())
 	}
 
 	return *execution, nil
@@ -229,7 +258,7 @@ func (t *TaskAPI) TriggerTask(ctx *gin.Context, id string, req TriggerTaskReques
 func (t *TaskAPI) Pause(ctx *gin.Context, id string) (string, error) {
 	// 查找任务
 	var task models.Task
-	if err := t.storage.DB().Where("id = ?", id).First(&task).Error; err != nil {
+	if err := t.db.Where("id = ?", id).First(&task).Error; err != nil {
 		return "", errors.Join(err, errors.New("task not found"))
 	}
 
@@ -243,7 +272,7 @@ func (t *TaskAPI) Pause(ctx *gin.Context, id string) (string, error) {
 	}
 
 	// 更新任务状态为暂停
-	if err := t.storage.DB().
+	if err := t.db.
 		Model(&task).
 		Where("id = ?", id).
 		Update("status", models.TaskStatusPaused).Error; err != nil {
@@ -251,7 +280,7 @@ func (t *TaskAPI) Pause(ctx *gin.Context, id string) (string, error) {
 	}
 
 	// 重新加载调度器任务
-	if err := t.scheduler.ReloadTasks(); err != nil {
+	if err := t.emitter.ReloadTasks(); err != nil {
 		log.Println("failed to reload tasks after pause", zap.Error(err))
 	}
 
@@ -261,7 +290,7 @@ func (t *TaskAPI) Pause(ctx *gin.Context, id string) (string, error) {
 func (t *TaskAPI) Resume(ctx *gin.Context, id string) (string, error) {
 	// 查找任务
 	var task models.Task
-	if err := t.storage.DB().Where("id = ?", id).First(&task).Error; err != nil {
+	if err := t.db.Where("id = ?", id).First(&task).Error; err != nil {
 		return "", errors.Join(err, errors.New("task not found"))
 	}
 
@@ -275,7 +304,7 @@ func (t *TaskAPI) Resume(ctx *gin.Context, id string) (string, error) {
 	}
 
 	// 更新任务状态为活跃
-	if err := t.storage.DB().
+	if err := t.db.
 		Model(&task).
 		Where("id = ?", id).
 		Update("status", models.TaskStatusActive).Error; err != nil {
@@ -283,7 +312,7 @@ func (t *TaskAPI) Resume(ctx *gin.Context, id string) (string, error) {
 	}
 
 	// 重新加载调度器任务
-	if err := t.scheduler.ReloadTasks(); err != nil {
+	if err := t.emitter.ReloadTasks(); err != nil {
 		log.Println("failed to reload tasks after resume", zap.Error(err))
 	}
 
@@ -292,7 +321,7 @@ func (t *TaskAPI) Resume(ctx *gin.Context, id string) (string, error) {
 
 func (t *TaskAPI) GetTaskExecutors(ctx *gin.Context, id string) ([]models.TaskExecutor, error) {
 	var taskExecutors []models.TaskExecutor
-	if err := t.storage.DB().
+	if err := t.db.
 		Preload("Executor").
 		Where("task_id = ?", id).
 		Find(&taskExecutors).
@@ -306,13 +335,13 @@ func (t *TaskAPI) GetTaskExecutors(ctx *gin.Context, id string) ([]models.TaskEx
 func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id string, req AssignExecutorReq) (models.TaskExecutor, error) {
 	// 验证任务是否存在
 	var task models.Task
-	if err := t.storage.DB().Where("id = ?", id).First(&task).Error; err != nil {
+	if err := t.db.Where("id = ?", id).First(&task).Error; err != nil {
 		return models.TaskExecutor{}, errors.Join(err, errors.New("task not found"))
 	}
 
 	// 验证执行器是否存在
 	var exec models.Executor
-	if err := t.storage.DB().Where("id = ?", req.ExecutorID).First(&exec).Error; err != nil {
+	if err := t.db.Where("id = ?", req.ExecutorID).First(&exec).Error; err != nil {
 		return models.TaskExecutor{}, errors.Join(err, errors.New("executor not found"))
 	}
 
@@ -333,7 +362,7 @@ func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id string, req AssignExecutor
 		taskExecutor.Weight = 1
 	}
 
-	if err := t.storage.DB().Create(&taskExecutor).Error; err != nil {
+	if err := t.db.Create(&taskExecutor).Error; err != nil {
 		return models.TaskExecutor{}, errors.Join(err, errors.New("create task executor failed"))
 	}
 
@@ -343,7 +372,7 @@ func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id string, req AssignExecutor
 func (t *TaskAPI) UpdateExecutorAssignment(ctx *gin.Context, id string, executorID string, req UpdateExecutorAssignmentReq) (models.TaskExecutor, error) {
 	// 查找现有分配
 	var taskExecutor models.TaskExecutor
-	if err := t.storage.DB().
+	if err := t.db.
 		Where("task_id = ? AND executor_id = ?", id, executorID).
 		First(&taskExecutor).Error; err != nil {
 		return models.TaskExecutor{}, errors.Join(err, errors.New("assignment not found"))
@@ -353,7 +382,7 @@ func (t *TaskAPI) UpdateExecutorAssignment(ctx *gin.Context, id string, executor
 	taskExecutor.Priority = req.Priority
 	taskExecutor.Weight = req.Weight
 
-	if err := t.storage.DB().Save(&taskExecutor).Error; err != nil {
+	if err := t.db.Save(&taskExecutor).Error; err != nil {
 		return models.TaskExecutor{}, errors.Join(err, errors.New("update task executor failed"))
 	}
 
@@ -361,7 +390,7 @@ func (t *TaskAPI) UpdateExecutorAssignment(ctx *gin.Context, id string, executor
 }
 
 func (t *TaskAPI) UnassignExecutor(ctx *gin.Context, id string, executorID string) (string, error) {
-	result := t.storage.DB().
+	result := t.db.
 		Where("task_id = ? AND executor_id = ?", id, executorID).
 		Delete(&models.TaskExecutor{})
 
@@ -386,14 +415,14 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID string) (TaskStatsResp, 
 	since24h := time.Now().Add(-24 * time.Hour)
 
 	// 获取24小时内的总执行次数
-	if err := t.storage.DB().Model(&models.TaskExecution{}).
+	if err := t.db.Model(&models.TaskExecution{}).
 		Where("task_id = ? AND created_at >= ?", taskID, since24h).
 		Count(&totalCount24h).Error; err != nil {
 		return TaskStatsResp{}, errors.Join(err, errors.New("failed to get 24h total count"))
 	}
 
 	// 获取24小时内的成功执行次数
-	if err := t.storage.DB().Model(&models.TaskExecution{}).
+	if err := t.db.Model(&models.TaskExecution{}).
 		Where("task_id = ? AND status = ? AND created_at >= ?",
 			taskID, models.ExecutionStatusSuccess, since24h).
 		Count(&successCount24h).Error; err != nil {
@@ -417,13 +446,13 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID string) (TaskStatsResp, 
 		var dayTotal, daySuccess int64
 
 		// 总数
-		t.storage.DB().Model(&models.TaskExecution{}).
+		t.db.Model(&models.TaskExecution{}).
 			Where("task_id = ? AND created_at >= ? AND created_at < ?",
 				taskID, startOfDay, endOfDay).
 			Count(&dayTotal)
 
 		// 成功数
-		t.storage.DB().Model(&models.TaskExecution{}).
+		t.db.Model(&models.TaskExecution{}).
 			Where("task_id = ? AND status = ? AND created_at >= ? AND created_at < ?",
 				taskID, models.ExecutionStatusSuccess, startOfDay, endOfDay).
 			Count(&daySuccess)
@@ -452,19 +481,19 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID string) (TaskStatsResp, 
 		var dayTotal, daySuccess, dayFailed int64
 
 		// 总数
-		t.storage.DB().Model(&models.TaskExecution{}).
+		t.db.Model(&models.TaskExecution{}).
 			Where("task_id = ? AND created_at >= ? AND created_at < ?",
 				taskID, startOfDay, endOfDay).
 			Count(&dayTotal)
 
 		// 成功数
-		t.storage.DB().Model(&models.TaskExecution{}).
+		t.db.Model(&models.TaskExecution{}).
 			Where("task_id = ? AND status = ? AND created_at >= ? AND created_at < ?",
 				taskID, models.ExecutionStatusSuccess, startOfDay, endOfDay).
 			Count(&daySuccess)
 
 		// 失败数
-		t.storage.DB().Model(&models.TaskExecution{}).
+		t.db.Model(&models.TaskExecution{}).
 			Where("task_id = ? AND status IN ? AND created_at >= ? AND created_at < ?",
 				taskID, []string{string(models.ExecutionStatusFailed), string(models.ExecutionStatusTimeout)},
 				startOfDay, endOfDay).
@@ -501,24 +530,24 @@ func (t *TaskAPI) calculateHealthStats(taskID string, days int) HealthStatus {
 	var totalCount, successCount, failedCount, timeoutCount int64
 
 	// 总执行次数
-	t.storage.DB().Model(&models.TaskExecution{}).
+	t.db.Model(&models.TaskExecution{}).
 		Where("task_id = ? AND created_at >= ?", taskID, since).
 		Count(&totalCount)
 
 	// 成功次数
-	t.storage.DB().Model(&models.TaskExecution{}).
+	t.db.Model(&models.TaskExecution{}).
 		Where("task_id = ? AND status = ? AND created_at >= ?",
 			taskID, models.ExecutionStatusSuccess, since).
 		Count(&successCount)
 
 	// 失败次数
-	t.storage.DB().Model(&models.TaskExecution{}).
+	t.db.Model(&models.TaskExecution{}).
 		Where("task_id = ? AND status = ? AND created_at >= ?",
 			taskID, models.ExecutionStatusFailed, since).
 		Count(&failedCount)
 
 	// 超时次数
-	t.storage.DB().Model(&models.TaskExecution{}).
+	t.db.Model(&models.TaskExecution{}).
 		Where("task_id = ? AND status = ? AND created_at >= ?",
 			taskID, models.ExecutionStatusTimeout, since).
 		Count(&timeoutCount)
@@ -537,7 +566,7 @@ func (t *TaskAPI) calculateHealthStats(taskID string, days int) HealthStatus {
 
 	// 计算平均执行时间
 	var avgDuration float64
-	t.storage.DB().Model(&models.TaskExecution{}).
+	t.db.Model(&models.TaskExecution{}).
 		Where("task_id = ? AND created_at >= ? AND start_time IS NOT NULL AND end_time IS NOT NULL",
 			taskID, since).
 		Select("AVG(TIMESTAMPDIFF(SECOND, start_time, end_time))").

@@ -18,19 +18,22 @@ func NewServer(
 	taskRunner *scheduler.TaskRunner,
 	logger *zap.Logger,
 ) *Server {
-	s := &Server{}
+	g := gin.New()
+	g.Use(gin.Recovery())
+	g.Use(middleware.ErrorHandlingMiddleware(logger))
+	g.Use(middleware.Cors())
+	db := storage.DB()
 
-	s.router = gin.New()
-	s.router.Use(gin.Recovery())
-	s.router.Use(middleware.ErrorHandlingMiddleware(logger))
-	s.router.Use(middleware.Cors())
+	var emitter = NewEventBus(scheduler, taskRunner)
 
-	NewTaskAPIWrap(NewTaskAPI(storage, scheduler)).BindAll(s.router)
-	NewExecutorAPIWrap(NewExecutorAPI(storage, logger)).BindAll(s.router)
-	NewExecutionAPIWrap(NewExecutionAPI(storage, taskRunner, logger)).BindAll(s.router)
-	NewCommonAPIWrap(NewCommonAPI(storage)).BindAll(s.router)
+	NewTaskAPIWrap(NewTaskAPI(db, emitter)).BindAll(g)
+	NewExecutorAPIWrap(NewExecutorAPI(db, logger)).BindAll(g)
+	NewExecutionAPIWrap(NewExecutionAPI(db, logger, emitter)).BindAll(g)
+	NewCommonAPIWrap(NewCommonAPI(db)).BindAll(g)
 
-	return s
+	return &Server{
+		router: g,
+	}
 }
 
 func (s *Server) Router() *gin.Engine {

@@ -4,8 +4,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	models "github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/orm"
+	"github.com/jobs/scheduler/internal/models"
+	"gorm.io/gorm"
 )
 
 type ICommonAPI interface {
@@ -20,28 +20,17 @@ type ICommonAPI interface {
 	SchedulerStats(ctx *gin.Context) (SchedulerStatsResp, error)
 }
 
-var _ ICommonAPI = (*CommonAPI)(nil)
-
 type CommonAPI struct {
-	storage *orm.Storage
+	db *gorm.DB
 }
 
-func NewCommonAPI(storage *orm.Storage) *CommonAPI {
+func NewCommonAPI(db *gorm.DB) ICommonAPI {
 	return &CommonAPI{
-		storage: storage,
+		db: db,
 	}
-}
-
-type SchedulerStatsResp struct {
-	Instances []models.SchedulerInstance `json:"instances"`
-	Time      time.Time                  `json:"time"`
 }
 
 func (c *CommonAPI) HealthCheck(ctx *gin.Context) (gin.H, error) {
-	if err := c.storage.Ping(); err != nil {
-		return gin.H{}, err
-	}
-
 	return gin.H{
 		"status": "healthy",
 		"time":   time.Now(),
@@ -50,10 +39,9 @@ func (c *CommonAPI) HealthCheck(ctx *gin.Context) (gin.H, error) {
 
 func (c *CommonAPI) SchedulerStats(ctx *gin.Context) (SchedulerStatsResp, error) {
 	var instances []models.SchedulerInstance
-	if err := c.storage.DB().Find(&instances).Error; err != nil {
+	if err := c.db.WithContext(ctx).Find(&instances).Error; err != nil {
 		return SchedulerStatsResp{}, err
 	}
-
 	return SchedulerStatsResp{
 		Instances: instances,
 		Time:      time.Now(),

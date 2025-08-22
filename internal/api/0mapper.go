@@ -1,6 +1,8 @@
 package api
 
 import (
+	"time"
+
 	"github.com/jobs/scheduler/internal/models"
 )
 
@@ -89,7 +91,25 @@ type TaskDefinition struct {
 	Status              models.TaskStatus          `json:"status"` // 初始状态，可以是 active 或 paused
 }
 
+type UpdateExecutorStatusReq struct {
+	Status models.ExecutorStatus `json:"status" binding:"required"`
+	Reason string                `json:"reason"`
+}
+
 ///// execution API //////
+
+type ExecutionCallbackRequest struct {
+	ExecutionID string                 `json:"execution_id" binding:"required"`
+	Status      models.ExecutionStatus `json:"status" binding:"required"`
+	Result      map[string]any         `json:"result"`
+	Logs        string                 `json:"logs"`
+}
+
+type ExecutionStatsReq struct {
+	StartTime string `form:"start_time"`
+	EndTime   string `form:"end_time"`
+	TaskID    string `form:"task_id"`
+}
 
 type ExecutionStatsResp struct {
 	Total   int64 `json:"total"`
@@ -114,4 +134,11 @@ type ListExecutionResp struct {
 	Page       int                    `json:"page"`
 	PageSize   int                    `json:"page_size"`
 	TotalPages int                    `json:"total_pages"`
+}
+
+////// common ///////
+
+type SchedulerStatsResp struct {
+	Instances []models.SchedulerInstance `json:"instances"`
+	Time      time.Time                  `json:"time"`
 }

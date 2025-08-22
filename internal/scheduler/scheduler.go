@@ -3,11 +3,13 @@ package scheduler
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/google/wire"
 	"github.com/jobs/scheduler/internal/loadbalance"
 	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
@@ -16,6 +18,8 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+var Provider = wire.NewSet(NewHealthChecker, NewTaskRunner, New)
 
 // Scheduler 任务调度器
 type Scheduler struct {
@@ -60,7 +64,10 @@ func New(cfg config.Config, storage *orm.Storage, logger *zap.Logger) (*Schedule
 	s.locker = NewLocker(sqlDB, cfg.Scheduler.LockKey, cfg.Scheduler.LockTimeout, logger)
 
 	// 创建任务执行器
-	s.taskRunner = NewTaskRunner(storage, s.lbManager, logger, cfg.Scheduler.MaxWorkers)
+	s.taskRunner = NewTaskRunner(storage, s.lbManager, logger, cfg.Scheduler.MaxWorkers, func(id string) string {
+		// TODO: IP地址不对
+		return fmt.Sprintf("http://localhost:8080/api/v1/executions/%s/callback", id)
+	})
 
 	// Executor健康检查
 	s.healthChecker = NewHealthChecker(storage, logger, cfg.HealthCheck, s.taskRunner)
@@ -131,6 +138,10 @@ func (s *Scheduler) Stop() error {
 	return nil
 }
 
+func (s *Scheduler) GetTaskRunner() *TaskRunner {
+	return s.taskRunner
+}
+
 // registerInstance 注册调度器实例
 func (s *Scheduler) registerInstance() error {
 	instance := models.SchedulerInstance{
@@ -144,7 +155,7 @@ func (s *Scheduler) registerInstance() error {
 	// 检查实例是否已存在
 	var existing models.SchedulerInstance
 	err := s.storage.DB().Where("instance_id = ?", s.instanceID).First(&existing).Error
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// 创建新实例
 		if err := s.storage.DB().Create(&instance).Error; err != nil {
 			return fmt.Errorf("failed to create scheduler instance: %w", err)
@@ -374,45 +385,4 @@ func (s *Scheduler) checkExecutionMode(ctx context.Context, task *models.Task) (
 	default:
 		return true, nil
 	}
-}
-
-// TriggerTask 手动触发任务
-func (s *Scheduler) TriggerTask(ctx context.Context, taskID string, parameters map[string]any) (*models.TaskExecution, error) {
-	// 获取任务
-	var task models.Task
-	if err := s.storage.DB().Where("id = ?", taskID).First(&task).Error; err != nil {
-		return nil, fmt.Errorf("task not found: %w", err)
-	}
-
-	// 合并参数
-	if parameters != nil {
-		if task.Parameters == nil {
-			task.Parameters = make(models.JSONMap)
-		}
-		for k, v := range parameters {
-			task.Parameters[k] = v
-		}
-	}
-
-	// 创建执行记录
-	execution := &models.TaskExecution{
-		ID:            uuid.New().String(),
-		TaskID:        task.ID,
-		ScheduledTime: time.Now(),
-		Status:        models.ExecutionStatusPending,
-	}
-
-	if err := s.storage.DB().Create(execution).Error; err != nil {
-		return nil, fmt.Errorf("failed to create execution record: %w", err)
-	}
-
-	// 提交到任务执行器
-	s.taskRunner.Submit(&task, execution)
-
-	return execution, nil
-}
-
-// GetTaskRunner 获取任务执行器
-func (s *Scheduler) GetTaskRunner() *TaskRunner {
-	return s.taskRunner
 }

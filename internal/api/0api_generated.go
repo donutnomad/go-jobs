@@ -10,7 +10,6 @@ import (
 
 	gin "github.com/gin-gonic/gin"
 	models "github.com/jobs/scheduler/internal/models"
-	scheduler "github.com/jobs/scheduler/internal/scheduler"
 )
 
 func NewCommonAPIWrap(inner ICommonAPI) *CommonAPIWrap {
@@ -157,11 +156,11 @@ func (a *ExecutionAPIWrap) Get(ctx *gin.Context) {
 // @Summary 获取执行统计
 // @Description 获取指定任务的执行统计
 // @Produce json
-// @Param req query StatsRequest true "req"
+// @Param req query ExecutionStatsReq true "req"
 // @Success 200 {object} ExecutionStatsResp
 // @Router api/v1/executions/stats [get]
 func (a *ExecutionAPIWrap) Stats(ctx *gin.Context) {
-	var req StatsRequest
+	var req ExecutionStatsReq
 	if !onGinBind(ctx, &req, "QUERY") {
 		return
 	}
@@ -174,12 +173,12 @@ func (a *ExecutionAPIWrap) Stats(ctx *gin.Context) {
 // @Description 执行指定id的执行回调
 // @Produce json
 // @Param id path string true "id"
-// @Param req body scheduler.ExecutionCallbackRequest true "req"
+// @Param req body ExecutionCallbackRequest true "req"
 // @Success 200 {object} string
 // @Router api/v1/executions/{id}/callback [post]
 func (a *ExecutionAPIWrap) Callback(ctx *gin.Context) {
 	id := ctx.Param("id")
-	var req scheduler.ExecutionCallbackRequest
+	var req ExecutionCallbackRequest
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
@@ -314,12 +313,12 @@ func (a *ExecutorAPIWrap) Update(ctx *gin.Context) {
 // @Description 更新指定id的执行器状态
 // @Produce json
 // @Param id path string true "id"
-// @Param req body UpdateStatusRequest true "req"
+// @Param req body UpdateExecutorStatusReq true "req"
 // @Success 200 {object} string
 // @Router api/v1/executors/{id}/status [put]
 func (a *ExecutorAPIWrap) UpdateStatus(ctx *gin.Context) {
 	id := ctx.Param("id")
-	var req UpdateStatusRequest
+	var req UpdateExecutorStatusReq
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}

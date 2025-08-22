@@ -25,6 +25,13 @@ type Executor struct {
 	TaskExecutors []TaskExecutor `gorm:"foreignKey:ExecutorID" json:"task_executors,omitempty"`
 }
 
+func (e *Executor) GetHealthCheckURL() string {
+	if e.HealthCheckURL != "" {
+		return e.HealthCheckURL
+	}
+	return fmt.Sprintf("%s/health", e.BaseURL)
+}
+
 func (e *Executor) GetStopURL() string {
 	return fmt.Sprintf("%s/stop", e.BaseURL)
 }

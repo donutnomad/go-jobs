@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/orm"
-	"github.com/jobs/scheduler/internal/scheduler"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 type IExecutionAPI interface {
@@ -27,12 +28,12 @@ type IExecutionAPI interface {
 	// Stats 获取执行统计
 	// 获取指定任务的执行统计
 	// @GET(api/v1/executions/stats)
-	Stats(ctx *gin.Context, req StatsRequest) (ExecutionStatsResp, error)
+	Stats(ctx *gin.Context, req ExecutionStatsReq) (ExecutionStatsResp, error)
 
 	// Callback 执行回调
 	// 执行指定id的执行回调
 	// @POST(api/v1/executions/{id}/callback)
-	Callback(ctx *gin.Context, id string, req scheduler.ExecutionCallbackRequest) (string, error)
+	Callback(ctx *gin.Context, id string, req ExecutionCallbackRequest) (string, error)
 
 	// Stop 停止执行
 	// 停止指定id的执行
@@ -41,29 +42,23 @@ type IExecutionAPI interface {
 }
 
 type ExecutionAPI struct {
-	storage    *orm.Storage
-	taskRunner *scheduler.TaskRunner
-	logger     *zap.Logger
+	db      *gorm.DB
+	logger  *zap.Logger
+	emitter IEmitter
 }
 
-func NewExecutionAPI(storage *orm.Storage, taskRunner *scheduler.TaskRunner, logger *zap.Logger) IExecutionAPI {
+func NewExecutionAPI(db *gorm.DB, logger *zap.Logger, emitter IEmitter) IExecutionAPI {
 	return &ExecutionAPI{
-		storage:    storage,
-		taskRunner: taskRunner,
-		logger:     logger,
+		db:      db,
+		logger:  logger,
+		emitter: emitter,
 	}
 }
 
-type StatsRequest struct {
-	StartTime string `form:"start_time"`
-	EndTime   string `form:"end_time"`
-	TaskID    string `form:"task_id"`
-}
-
-func (e *ExecutionAPI) Stats(ctx *gin.Context, req StatsRequest) (ExecutionStatsResp, error) {
+func (e *ExecutionAPI) Stats(ctx *gin.Context, req ExecutionStatsReq) (ExecutionStatsResp, error) {
 	var stats ExecutionStatsResp
 
-	query := e.storage.DB().Model(&models.TaskExecution{})
+	query := e.db.WithContext(ctx).Model(&models.TaskExecution{})
 	if start := req.StartTime; start != "" {
 		query = query.Where("scheduled_time >= ?", start)
 	}
@@ -100,7 +95,7 @@ func (e *ExecutionAPI) List(ctx *gin.Context, req ListExecutionReq) (ListExecuti
 	offset := (page - 1) * pageSize
 
 	var executions []models.TaskExecution
-	query := e.storage.DB().Model(&models.TaskExecution{})
+	query := e.db.Model(&models.TaskExecution{})
 
 	// 支持任务ID过滤
 	if taskID := req.TaskID; taskID != "" {
@@ -147,7 +142,7 @@ func (e *ExecutionAPI) List(ctx *gin.Context, req ListExecutionReq) (ListExecuti
 
 func (e *ExecutionAPI) Get(ctx *gin.Context, id string) (*models.TaskExecution, error) {
 	var execution models.TaskExecution
-	if err := e.storage.DB().
+	if err := e.db.
 		Preload("Task").
 		Preload("Executor").
 		Where("id = ?", id).
@@ -158,17 +153,36 @@ func (e *ExecutionAPI) Get(ctx *gin.Context, id string) (*models.TaskExecution, 
 	return &execution, nil
 }
 
-func (e *ExecutionAPI) Callback(ctx *gin.Context, id string, req scheduler.ExecutionCallbackRequest) (string, error) {
-	err := e.taskRunner.HandleCallback(ctx.Request.Context(), id, req)
-	if err != nil {
-		return "", err
+func (e *ExecutionAPI) Callback(ctx *gin.Context, id string, req ExecutionCallbackRequest) (string, error) {
+	// 加载执行记录
+	var execution models.TaskExecution
+	if err := e.db.WithContext(ctx).Where("id = ?", id).First(&execution).Error; err != nil {
+		return "", fmt.Errorf("execution not found: %w", err)
 	}
+
+	// 更新执行状态
+	now := time.Now()
+	execution.Status = req.Status
+	execution.EndTime = &now
+	execution.Result = req.Result
+	execution.Logs = req.Logs
+
+	if err := e.db.Save(&execution).Error; err != nil {
+		return "", fmt.Errorf("failed to update execution: %w", err)
+	}
+
+	e.logger.Info("execution callback received",
+		zap.String("execution_id", id),
+		zap.String("status", string(req.Status)))
+
+	_ = e.emitter.CancelExecutionTimer(id)
+
 	return "callback processed", nil
 }
 
 func (e *ExecutionAPI) Stop(ctx *gin.Context, id string) (string, error) {
 	var record models.TaskExecution
-	if err := e.storage.DB().
+	if err := e.db.WithContext(ctx).
 		Preload("Executor").
 		Where("id = ?", id).
 		First(&record).Error; err != nil {
@@ -177,6 +191,7 @@ func (e *ExecutionAPI) Stop(ctx *gin.Context, id string) (string, error) {
 	if record.Status != models.ExecutionStatusRunning {
 		return "", errors.New("execution is not running")
 	}
+	record.Status = models.ExecutionStatusCancelled
 
 	// 调用执行器的停止接口
 	if record.Executor != nil {
@@ -195,7 +210,7 @@ func (e *ExecutionAPI) Stop(ctx *gin.Context, id string) (string, error) {
 
 		if resp.StatusCode != http.StatusOK {
 			var errorResp map[string]any
-			json.NewDecoder(resp.Body).Decode(&errorResp)
+			_ = json.NewDecoder(resp.Body).Decode(&errorResp)
 			e.logger.Error("executor stop endpoint returned error",
 				zap.String("execution_id", id),
 				zap.Int("status_code", resp.StatusCode),
@@ -203,12 +218,9 @@ func (e *ExecutionAPI) Stop(ctx *gin.Context, id string) (string, error) {
 		}
 	}
 
-	// 更新执行状态为取消中
-	record.Status = models.ExecutionStatusCancelled
-	if err := e.storage.DB().Save(&record).Error; err != nil {
+	if err := e.db.Save(&record).Error; err != nil {
 		return "", errors.Join(err, errors.New("failed to update execution status"))
 	}
-
 	return "stop request sent to executor", nil
 }
 
@@ -218,12 +230,4 @@ func mustMarshal(t any) []byte {
 		panic(err)
 	}
 	return jsonData
-}
-
-func mustMarshalString(t any) string {
-	jsonData, err := json.Marshal(t)
-	if err != nil {
-		panic(err)
-	}
-	return string(jsonData)
 }

@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -185,33 +184,23 @@ func (h *HealthChecker) checkExecutor(executor *models.Executor) {
 }
 
 func (h *HealthChecker) ping(ctx context.Context, executor *models.Executor) bool {
-	if executor.HealthCheckURL == "" {
-		// 如果没有健康检查URL，使用基础URL
-		executor.HealthCheckURL = fmt.Sprintf("%s/health", executor.BaseURL)
-	}
+	u := executor.GetHealthCheckURL()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, executor.HealthCheckURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		h.logger.Error("failed to create health check request",
-			zap.String("executor_id", executor.ID),
-			zap.Error(err))
+		h.logger.Error("failed to create health check request", zap.String("executor_id", executor.ID), zap.Error(err))
 		return false
 	}
 
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		h.logger.Debug("health check failed",
-			zap.String("executor_id", executor.ID),
-			zap.String("url", executor.HealthCheckURL),
-			zap.Error(err))
+		h.logger.Debug("health check failed", zap.String("executor_id", executor.ID), zap.String("url", u), zap.Error(err))
 		return false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		h.logger.Debug("health check returned non-200 status",
-			zap.String("executor_id", executor.ID),
-			zap.Int("status_code", resp.StatusCode))
+		h.logger.Debug("health check returned non-200 status", zap.String("executor_id", executor.ID), zap.Int("status_code", resp.StatusCode))
 		return false
 	}
 

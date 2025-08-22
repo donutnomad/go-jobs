@@ -4,9 +4,19 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/wire"
 )
 
 //go:generate go tool github.com/donutnomad/gotoolkit/swagGen -path . -out 0api_generated.go
+
+var Provider = wire.NewSet(
+	NewTaskAPI, NewExecutorAPI, NewExecutionAPI, NewTaskAPI,
+
+	NewTaskAPIWrap,
+	NewExecutorAPIWrap,
+	NewExecutionAPIWrap,
+	NewCommonAPIWrap,
+)
 
 func onGinBind(c *gin.Context, val any, typ string) bool {
 	switch typ {

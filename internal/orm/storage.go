@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/wire"
 	"github.com/jobs/scheduler/internal/models"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+var Provider = wire.NewSet(New)
 
 type Config struct {
 	Host                  string

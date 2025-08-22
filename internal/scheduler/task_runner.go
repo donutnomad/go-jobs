@@ -92,6 +92,8 @@ type TaskRunner struct {
 	// 熔断器管理，每个执行器一个熔断器
 	breakerMu sync.RWMutex
 	breakers  map[string]*CircuitBreaker
+
+	callbackURL func(id string) string
 }
 
 type taskJob struct {
@@ -105,6 +107,7 @@ func NewTaskRunner(
 	lbManager *loadbalance.Manager,
 	logger *zap.Logger,
 	maxWorkers int,
+	callbackURL func(id string) string,
 ) *TaskRunner {
 	return &TaskRunner{
 		storage:   storage,
@@ -113,11 +116,12 @@ func NewTaskRunner(
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		maxWorkers: maxWorkers,
-		taskCh:     make(chan *taskJob, maxWorkers*2),
-		stopCh:     make(chan struct{}),
-		timeouts:   make(map[string]*time.Timer),
-		breakers:   make(map[string]*CircuitBreaker),
+		maxWorkers:  maxWorkers,
+		taskCh:      make(chan *taskJob, maxWorkers*2),
+		stopCh:      make(chan struct{}),
+		timeouts:    make(map[string]*time.Timer),
+		breakers:    make(map[string]*CircuitBreaker),
+		callbackURL: callbackURL,
 	}
 }
 
@@ -166,6 +170,10 @@ func (r *TaskRunner) Submit(task *models.Task, execution *models.TaskExecution) 
 		execution.EndTime = &now
 		r.storage.DB().Save(execution)
 	}
+}
+
+func (r *TaskRunner) Submit2(taskId string, executionId string) {
+	// TODO: 从id加载数据并调用Sumbit(
 }
 
 // worker 工作协程
@@ -326,7 +334,7 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *models.Task, execut
 			"task_id":      task.ID,
 			"task_name":    task.Name,
 			"parameters":   task.Parameters,
-			"callback_url": fmt.Sprintf("http://localhost:8080/api/v1/executions/%s/callback", execution.ID),
+			"callback_url": r.callbackURL(execution.ID),
 		}
 
 		jsonData, err := json.Marshal(payload)
@@ -398,6 +406,10 @@ func (r *TaskRunner) scheduleTimeout(executionID string, timeout time.Duration) 
 	r.timeouts[executionID] = timer
 }
 
+func (r *TaskRunner) CancelTimeout(executionID string) {
+	r.cancelTimeout(executionID)
+}
+
 // cancelTimeout 取消超时定时器
 func (r *TaskRunner) cancelTimeout(executionID string) {
 	r.timeoutMu.Lock()
@@ -441,40 +453,4 @@ func (r *TaskRunner) handleTimeout(executionID string) {
 		r.logger.Warn("task execution timeout",
 			zap.String("execution_id", executionID))
 	}
-}
-
-type ExecutionCallbackRequest struct {
-	ExecutionID string                 `json:"execution_id" binding:"required"`
-	Status      models.ExecutionStatus `json:"status" binding:"required"`
-	Result      map[string]any         `json:"result"`
-	Logs        string                 `json:"logs"`
-}
-
-// HandleCallback 处理执行回调
-func (r *TaskRunner) HandleCallback(ctx context.Context, executionID string, req ExecutionCallbackRequest) error {
-	// 取消超时定时器（如果存在）
-	r.cancelTimeout(executionID)
-
-	// 加载执行记录
-	var execution models.TaskExecution
-	if err := r.storage.DB().Where("id = ?", executionID).First(&execution).Error; err != nil {
-		return fmt.Errorf("execution not found: %w", err)
-	}
-
-	// 更新执行状态
-	now := time.Now()
-	execution.Status = req.Status
-	execution.EndTime = &now
-	execution.Result = req.Result
-	execution.Logs = req.Logs
-
-	if err := r.storage.DB().Save(&execution).Error; err != nil {
-		return fmt.Errorf("failed to update execution: %w", err)
-	}
-
-	r.logger.Info("execution callback received",
-		zap.String("execution_id", executionID),
-		zap.String("status", string(req.Status)))
-
-	return nil
 }
