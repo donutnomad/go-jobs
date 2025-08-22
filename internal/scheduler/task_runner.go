@@ -343,7 +343,7 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *models.Task, execut
 	// 通过熔断器调用
 	return breaker.Call(func() error {
 		// 构建请求
-		url := fmt.Sprintf("%s/execute", exec.BaseURL)
+		url := exec.GetExecURL()
 
 		payload := map[string]any{
 			"execution_id": execution.ID,
@@ -422,12 +422,8 @@ func (r *TaskRunner) scheduleTimeout(executionID string, timeout time.Duration) 
 	r.timeouts[executionID] = timer
 }
 
+// CancelTimeout 取消超时定时器
 func (r *TaskRunner) CancelTimeout(executionID string) {
-	r.cancelTimeout(executionID)
-}
-
-// cancelTimeout 取消超时定时器
-func (r *TaskRunner) cancelTimeout(executionID string) {
 	r.timeoutMu.Lock()
 	defer r.timeoutMu.Unlock()
 

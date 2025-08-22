@@ -36,6 +36,10 @@ func (e *Executor) GetStopURL() string {
 	return fmt.Sprintf("%s/stop", e.BaseURL)
 }
 
+func (e *Executor) GetExecURL() string {
+	return fmt.Sprintf("%s/execute", e.BaseURL)
+}
+
 func (e *Executor) SetStatus(status ExecutorStatus) {
 	e.Status = status
 	if status == ExecutorStatusOnline {
