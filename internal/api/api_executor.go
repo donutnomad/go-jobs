@@ -70,22 +70,29 @@ func (e *ExecutorAPI) List(ctx *gin.Context, req ListExecutorReq) ([]*models.Exe
 			Count(&count)
 	}
 
-	// 如果需要包含任务信息，为每个执行器加载关联的任务
-	if req.IncludeTasks {
-		for _, exe := range executors {
-			var taskExecutors []models.TaskExecutor
-			err := e.db.
-				Preload("Task").
-				Where("executor_name = ?", exe.Name).
-				Find(&taskExecutors).Error
-			if err != nil {
-				e.logger.Error("failed to load task executors",
-					zap.String("executor_name", exe.Name),
-					zap.Error(err))
-				continue
-			}
-			exe.TaskExecutors = taskExecutors
+	// 为每个执行器加载关联的任务（直接加载，不再依赖include_tasks参数）
+	for _, exe := range executors {
+		var taskExecutors []models.TaskExecutor
+		err := e.db.
+			Where("executor_name = ?", exe.Name).
+			Find(&taskExecutors).Error
+		if err != nil {
+			e.logger.Error("failed to load task executors",
+				zap.String("executor_name", exe.Name),
+				zap.Error(err))
+			continue
 		}
+		
+		// 为每个TaskExecutor加载关联的Task信息
+		for i := range taskExecutors {
+			var task models.Task
+			if err := e.db.Where("id = ?", taskExecutors[i].TaskID).First(&task).Error; err == nil {
+				taskExecutors[i].Task = &task
+			}
+		}
+		
+		// 在应用层手动填充关联数据
+		exe.TaskExecutors = taskExecutors
 	}
 	sort.Slice(executors, func(i, j int) bool {
 		return executors[i].Status.ToInt() < executors[j].Status.ToInt()
@@ -98,6 +105,20 @@ func (e *ExecutorAPI) Get(ctx *gin.Context, id string) (*models.Executor, error)
 	if err := e.db.WithContext(ctx).Where("id = ?", id).First(&exec).Error; err != nil {
 		return nil, fmt.Errorf("executor not found: %w", err)
 	}
+	
+	// 手动加载关联的TaskExecutors
+	var taskExecutors []models.TaskExecutor
+	if err := e.db.Where("executor_name = ?", exec.Name).Find(&taskExecutors).Error; err == nil {
+		// 为每个TaskExecutor加载关联的Task信息
+		for i := range taskExecutors {
+			var task models.Task
+			if err := e.db.Where("id = ?", taskExecutors[i].TaskID).First(&task).Error; err == nil {
+				taskExecutors[i].Task = &task
+			}
+		}
+		exec.TaskExecutors = taskExecutors
+	}
+	
 	return &exec, nil
 }
 

@@ -37,7 +37,7 @@ func main() {
 	executorName := "00001"
 	_ = executorName
 
-	port := ":9093"
+	port := ":9091"
 	log.Printf("Sample executor listening on %s", port)
 	log.Fatal(http.ListenAndServe(port, nil))
 }

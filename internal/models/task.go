@@ -17,9 +17,9 @@ type Task struct {
 	CreatedAt           time.Time           `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt           time.Time           `gorm:"autoUpdateTime" json:"updated_at"`
 
-	// 关联关系
-	TaskExecutors []TaskExecutor  `gorm:"foreignKey:TaskID" json:"task_executors,omitempty"`
-	Executions    []TaskExecution `gorm:"foreignKey:TaskID" json:"executions,omitempty"`
+	// 在应用层手动填充的关联字段（不使用GORM关联）
+	TaskExecutors []TaskExecutor  `gorm:"-" json:"task_executors,omitempty"`
+	Executions    []TaskExecution `gorm:"-" json:"executions,omitempty"`
 }
 
 func (Task) TableName() string {

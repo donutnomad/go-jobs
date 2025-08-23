@@ -86,7 +86,7 @@ func (a *CommonAPIWrap) HealthCheck(ctx *gin.Context) {
 // @Description 获取指定任务的执行统计
 // @Produce json
 // @Success 200 {object} SchedulerStatsResp
-// @Router api/v1/scheduler/stats [get]
+// @Router api/v1/scheduler/status [get]
 func (a *CommonAPIWrap) SchedulerStats(ctx *gin.Context) {
 	result, err := a.inner.SchedulerStats(ctx)
 	onGinResponse[SchedulerStatsResp](ctx, result, err)
@@ -97,7 +97,7 @@ func (a *CommonAPIWrap) BindHealthCheck(router gin.IRoutes, preHandlers ...gin.H
 }
 
 func (a *CommonAPIWrap) BindSchedulerStats(router gin.IRoutes, preHandlers ...gin.HandlerFunc) {
-	a.bind(router, "GET", "api/v1/scheduler/stats", preHandlers, nil, a.SchedulerStats)
+	a.bind(router, "GET", "api/v1/scheduler/status", preHandlers, nil, a.SchedulerStats)
 }
 
 func (a *CommonAPIWrap) BindAll(router gin.IRoutes, preHandlers ...gin.HandlerFunc) {

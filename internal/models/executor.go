@@ -22,7 +22,8 @@ type Executor struct {
 	CreatedAt           time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt           time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 
-	TaskExecutors []TaskExecutor `gorm:"foreignKey:ExecutorName;references:Name" json:"task_executors,omitempty"`
+	// 在应用层手动填充的关联字段（不使用GORM关联）
+	TaskExecutors []TaskExecutor `gorm:"-" json:"task_executors,omitempty"`
 }
 
 func (e *Executor) GetHealthCheckURL() string {
@@ -65,9 +66,9 @@ type TaskExecutor struct {
 	Weight       int       `gorm:"default:1" json:"weight"`
 	CreatedAt    time.Time `gorm:"autoCreateTime" json:"created_at"`
 
-	// 关联关系 - 保留关联以支持预加载，但不创建数据库外键约束
-	Task     *Task     `gorm:"foreignKey:TaskID;constraint:OnDelete:CASCADE" json:"task,omitempty"`
-	Executor *Executor `gorm:"foreignKey:ExecutorName;references:Name" json:"executor,omitempty"`
+	// 在应用层手动填充的关联字段（不使用GORM关联）
+	Task     *Task     `gorm:"-" json:"task,omitempty"`
+	Executor *Executor `gorm:"-" json:"executor,omitempty"`
 }
 
 func (TaskExecutor) TableName() string {

@@ -17,8 +17,9 @@ type TaskExecution struct {
 	RetryCount    int             `gorm:"default:0" json:"retry_count"`
 	CreatedAt     time.Time       `gorm:"autoCreateTime" json:"created_at"`
 
-	Task     *Task     `gorm:"foreignKey:TaskID;constraint:OnDelete:CASCADE" json:"task,omitempty"`
-	Executor *Executor `gorm:"foreignKey:ExecutorID;constraint:OnDelete:SET NULL" json:"executor,omitempty"`
+	// 在应用层手动填充的关联字段（不使用GORM关联）
+	Task     *Task     `gorm:"-" json:"task,omitempty"`
+	Executor *Executor `gorm:"-" json:"executor,omitempty"`
 }
 
 func (TaskExecution) TableName() string {
@@ -32,9 +33,10 @@ type LoadBalanceState struct {
 	StickyExecutorID *string   `gorm:"size:64" json:"sticky_executor_id"`
 	UpdatedAt        time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 
-	Task           *Task     `gorm:"foreignKey:TaskID;constraint:OnDelete:CASCADE" json:"task,omitempty"`
-	LastExecutor   *Executor `gorm:"foreignKey:LastExecutorID;constraint:OnDelete:SET NULL" json:"last_executor,omitempty"`
-	StickyExecutor *Executor `gorm:"foreignKey:StickyExecutorID;constraint:OnDelete:SET NULL" json:"sticky_executor,omitempty"`
+	// 移除数据库关联，在应用层实现
+	// Task           *Task     `gorm:"foreignKey:TaskID;constraint:OnDelete:CASCADE" json:"task,omitempty"`
+	// LastExecutor   *Executor `gorm:"foreignKey:LastExecutorID;constraint:OnDelete:SET NULL" json:"last_executor,omitempty"`
+	// StickyExecutor *Executor `gorm:"foreignKey:StickyExecutorID;constraint:OnDelete:SET NULL" json:"sticky_executor,omitempty"`
 }
 
 func (LoadBalanceState) TableName() string {

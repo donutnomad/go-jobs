@@ -33,7 +33,7 @@ func New(cfg Config) (*Storage, error) {
 		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
 
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
-		Logger:                                   logger.Default.LogMode(logger.Info),
+		Logger:                                   logger.Default.LogMode(logger.Error),
 		DisableForeignKeyConstraintWhenMigrating: true, // 禁用外键约束创建，保留关联关系
 	})
 	if err != nil {

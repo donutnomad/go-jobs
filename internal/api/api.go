@@ -16,7 +16,7 @@ type ICommonAPI interface {
 
 	// SchedulerStats 获取执行统计
 	// 获取指定任务的执行统计
-	// @GET(api/v1/scheduler/stats)
+	// @GET(api/v1/scheduler/status)
 	SchedulerStats(ctx *gin.Context) (SchedulerStatsResp, error)
 }
 

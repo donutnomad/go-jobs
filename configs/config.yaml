@@ -17,13 +17,13 @@ database:
   port: 3306
   database: jobs
   user: root
-  password: "CdESwVG3wwPWYw"
+  password: "123456"
   max_connections: 100        # 增加最大连接数以支持更高并发
   max_idle_connections: 25    # 增加空闲连接数以减少连接建立开销
   connection_max_lifetime: 10m # 缩短连接生命周期以避免长时间占用
 
 server:
-  ip: 10.1.1.190
+  ip: 192.168.31.202
   port: 8080
   read_timeout: 30s
   write_timeout: 30s

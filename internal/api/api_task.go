@@ -98,7 +98,7 @@ type GetTasksReq struct {
 
 func (t *TaskAPI) List(ctx *gin.Context, req GetTasksReq) ([]models.Task, error) {
 	var tasks []models.Task
-	query := t.db.WithContext(ctx).Preload("TaskExecutors").Preload("TaskExecutors.Executor")
+	query := t.db.WithContext(ctx)
 
 	// 支持状态过滤
 	if req.Status != "" {
@@ -109,20 +109,55 @@ func (t *TaskAPI) List(ctx *gin.Context, req GetTasksReq) ([]models.Task, error)
 		return nil, err
 	}
 
+	// 手动加载任务执行器关联信息
+	for i := range tasks {
+		var taskExecutors []models.TaskExecutor
+		if err := t.db.WithContext(ctx).
+			Where("task_id = ?", tasks[i].ID).
+			Find(&taskExecutors).Error; err == nil {
+			
+			// 为每个TaskExecutor加载关联的Executor信息
+			for j := range taskExecutors {
+				var executor models.Executor
+				if err := t.db.Where("name = ?", taskExecutors[j].ExecutorName).First(&executor).Error; err == nil {
+					taskExecutors[j].Executor = &executor
+				}
+			}
+			
+			tasks[i].TaskExecutors = taskExecutors
+		}
+	}
+
 	return tasks, nil
 }
 
 func (t *TaskAPI) Get(ctx *gin.Context, id string) (models.Task, error) {
 	var task models.Task
 
-	query := t.db.WithContext(ctx).Preload("TaskExecutors").Preload("TaskExecutors.Executor")
-
-	if err := query.
+	if err := t.db.WithContext(ctx).
 		Where("id = ?", id).
 		First(&task).
 		Error; err != nil {
 		return models.Task{}, errors.Join(err, errors.New("task not found"))
 	}
+	
+	// 手动加载任务执行器关联信息
+	var taskExecutors []models.TaskExecutor
+	if err := t.db.WithContext(ctx).
+		Where("task_id = ?", id).
+		Find(&taskExecutors).Error; err == nil {
+		
+		// 为每个TaskExecutor加载关联的Executor信息
+		for i := range taskExecutors {
+			var executor models.Executor
+			if err := t.db.Where("name = ?", taskExecutors[i].ExecutorName).First(&executor).Error; err == nil {
+				taskExecutors[i].Executor = &executor
+			}
+		}
+		
+		task.TaskExecutors = taskExecutors
+	}
+	
 	return task, nil
 }
 
@@ -322,7 +357,6 @@ func (t *TaskAPI) Resume(ctx *gin.Context, id string) (string, error) {
 func (t *TaskAPI) GetTaskExecutors(ctx *gin.Context, id string) ([]models.TaskExecutor, error) {
 	var taskExecutors []models.TaskExecutor
 	if err := t.db.
-		Preload("Executor").
 		Where("task_id = ?", id).
 		Find(&taskExecutors).
 		Error; err != nil {

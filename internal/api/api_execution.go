@@ -130,9 +130,25 @@ func (e *ExecutionAPI) List(ctx *gin.Context, req ListExecutionReq) (ListExecuti
 	}
 
 	// 查询数据
-	query = query.Preload("Task").Preload("Executor")
 	if err := query.Order("scheduled_time DESC").Limit(pageSize).Offset(offset).Find(&executions).Error; err != nil {
 		return ListExecutionResp{}, err
+	}
+
+	// 手动填充关联的Task和Executor信息
+	for i := range executions {
+		// 手动加载任务信息
+		var task models.Task
+		if err := e.db.Where("id = ?", executions[i].TaskID).First(&task).Error; err == nil {
+			executions[i].Task = &task
+		}
+
+		// 手动加载执行器信息（如果存在）
+		if executions[i].ExecutorID != nil && *executions[i].ExecutorID != "" {
+			var executor models.Executor
+			if err := e.db.Where("id = ?", *executions[i].ExecutorID).First(&executor).Error; err == nil {
+				executions[i].Executor = &executor
+			}
+		}
 	}
 
 	// 计算总页数
@@ -153,11 +169,23 @@ func (e *ExecutionAPI) List(ctx *gin.Context, req ListExecutionReq) (ListExecuti
 func (e *ExecutionAPI) Get(ctx *gin.Context, id string) (*models.TaskExecution, error) {
 	var execution models.TaskExecution
 	if err := e.db.
-		Preload("Task").
-		Preload("Executor").
 		Where("id = ?", id).
 		First(&execution).Error; err != nil {
 		return nil, err
+	}
+
+	// 手动加载任务信息
+	var task models.Task
+	if err := e.db.Where("id = ?", execution.TaskID).First(&task).Error; err == nil {
+		execution.Task = &task
+	}
+
+	// 手动加载执行器信息（如果存在）
+	if execution.ExecutorID != nil && *execution.ExecutorID != "" {
+		var executor models.Executor
+		if err := e.db.Where("id = ?", *execution.ExecutorID).First(&executor).Error; err == nil {
+			execution.Executor = &executor
+		}
 	}
 
 	return &execution, nil
@@ -193,7 +221,6 @@ func (e *ExecutionAPI) Callback(ctx *gin.Context, id string, req ExecutionCallba
 func (e *ExecutionAPI) Stop(ctx *gin.Context, id string) (string, error) {
 	var record models.TaskExecution
 	if err := e.db.WithContext(ctx).
-		Preload("Executor").
 		Where("id = ?", id).
 		First(&record).Error; err != nil {
 		return "", err
@@ -203,28 +230,31 @@ func (e *ExecutionAPI) Stop(ctx *gin.Context, id string) (string, error) {
 	}
 	record.Status = models.ExecutionStatusCancelled
 
-	// 调用执行器的停止接口
-	if record.Executor != nil {
-		stopReq := map[string]string{
-			"execution_id": id,
-		}
-		resp, err := http.Post(record.Executor.GetStopURL(), "application/json", bytes.NewBuffer(mustMarshal(stopReq)))
-		if err != nil {
-			e.logger.Error("failed to call executor stop endpoint",
-				zap.String("execution_id", id),
-				zap.String("executor_id", *record.ExecutorID),
-				zap.Error(err))
-			return "", errors.Join(err, errors.New("failed to stop execution on executor"))
-		}
-		defer resp.Body.Close()
+	// 手动查询关联的执行器信息（应用层实现关联）
+	if record.ExecutorID != nil && *record.ExecutorID != "" {
+		var executor models.Executor
+		if err := e.db.Where("id = ?", *record.ExecutorID).First(&executor).Error; err == nil {
+			stopReq := map[string]string{
+				"execution_id": id,
+			}
+			resp, err := http.Post(executor.GetStopURL(), "application/json", bytes.NewBuffer(mustMarshal(stopReq)))
+			if err != nil {
+				e.logger.Error("failed to call executor stop endpoint",
+					zap.String("execution_id", id),
+					zap.String("executor_id", *record.ExecutorID),
+					zap.Error(err))
+				return "", errors.Join(err, errors.New("failed to stop execution on executor"))
+			}
+			defer resp.Body.Close()
 
-		if resp.StatusCode != http.StatusOK {
-			var errorResp map[string]any
-			_ = json.NewDecoder(resp.Body).Decode(&errorResp)
-			e.logger.Error("executor stop endpoint returned error",
-				zap.String("execution_id", id),
-				zap.Int("status_code", resp.StatusCode),
-				zap.Any("error", errorResp))
+			if resp.StatusCode != http.StatusOK {
+				var errorResp map[string]any
+				_ = json.NewDecoder(resp.Body).Decode(&errorResp)
+				e.logger.Error("executor stop endpoint returned error",
+					zap.String("execution_id", id),
+					zap.Int("status_code", resp.StatusCode),
+					zap.Any("error", errorResp))
+			}
 		}
 	}
 

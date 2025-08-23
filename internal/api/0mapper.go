@@ -62,7 +62,7 @@ type TriggerTaskRequest struct {
 ////// executor API  //////
 
 type ListExecutorReq struct {
-	IncludeTasks bool `json:"include_tasks"`
+	IncludeTasks bool `form:"include_tasks" json:"include_tasks"`
 }
 
 type UpdateExecutorReq struct {
