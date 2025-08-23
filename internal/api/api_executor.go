@@ -74,6 +74,26 @@ func NewExecutorAPI(db *gorm.DB,
 	}
 }
 
+func (e *ExecutorAPI) Get(ctx *gin.Context, id uint64) (*ExecutorResp, error) {
+	exec, err := e.executorRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	} else if exec == nil {
+		return nil, fmt.Errorf("executor not found")
+	}
+	ret := new(ExecutorResp).FromDomain(exec)
+
+	assignments, err := e.taskRepo.ListAssignmentsWithExecutor(ctx, exec.Name)
+	if err != nil {
+		return nil, err
+	}
+	ret.TaskAssignments = lo.Map(assignments, func(assignment *task.TaskAssignment, _ int) *TaskAssignmentResp2 {
+		return new(TaskAssignmentResp2).FromDomain(assignment)
+	})
+
+	return ret, nil
+}
+
 func (e *ExecutorAPI) List(ctx *gin.Context, req ListExecutorReq) ([]*ExecutorResp, error) {
 	executors, err := e.executorRepo.List(ctx, 0, 10_0000)
 	if err != nil {
@@ -104,26 +124,6 @@ func (e *ExecutorAPI) List(ctx *gin.Context, req ListExecutorReq) ([]*ExecutorRe
 	return ret, nil
 }
 
-func (e *ExecutorAPI) Get(ctx *gin.Context, id uint64) (*ExecutorResp, error) {
-	exec, err := e.executorRepo.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	} else if exec == nil {
-		return nil, fmt.Errorf("executor not found")
-	}
-	ret := new(ExecutorResp).FromDomain(exec)
-
-	assignments, err := e.taskRepo.ListAssignmentsWithExecutor(ctx, exec.Name)
-	if err != nil {
-		return nil, err
-	}
-	ret.TaskAssignments = lo.Map(assignments, func(assignment *task.TaskAssignment, _ int) *TaskAssignmentResp2 {
-		return new(TaskAssignmentResp2).FromDomain(assignment)
-	})
-
-	return ret, nil
-}
-
 func (e *ExecutorAPI) Update(ctx *gin.Context, id uint64, req UpdateExecutorReq) (*ExecutorResp, error) {
 	exec, err := e.usecase.Update(ctx, id, &executor.ExecutorPatch{
 		Name:           mo.Some(req.Name).ToPointer(),
@@ -149,8 +149,7 @@ func (e *ExecutorAPI) Delete(ctx *gin.Context, id uint64) (string, error) {
 		exec, err := e.executorRepo.GetByID(ctx, id)
 		if err != nil {
 			return err
-		}
-		if exec == nil {
+		} else if exec == nil {
 			return fmt.Errorf("executor not found")
 		}
 		if err := e.taskRepo.DeleteAssignmentsByExecutorName(ctx, exec.Name); err != nil {

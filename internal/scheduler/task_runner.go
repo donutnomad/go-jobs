@@ -163,8 +163,7 @@ func (r *TaskRunner) Stop() {
 	r.logger.Info("task runner stopped")
 }
 
-// Submit 提交任务
-func (r *TaskRunner) Submit(task *task.Task, record *execution.TaskExecution) {
+func (r *TaskRunner) submit(task *task.Task, record *execution.TaskExecution) {
 	select {
 	case r.taskCh <- &taskJob{task: task, execution: record}:
 		r.logger.Debug("task submitted",
@@ -185,7 +184,7 @@ func (r *TaskRunner) Submit(task *task.Task, record *execution.TaskExecution) {
 	}
 }
 
-func (r *TaskRunner) Submit2(taskId uint64, parameters map[string]any, executionId uint64) {
+func (r *TaskRunner) Submit(taskId uint64, parameters map[string]any, executionId uint64) {
 	ctx := context.Background()
 	tsk, err := r.taskRepo.GetByID(ctx, taskId)
 	if err != nil {
@@ -202,8 +201,14 @@ func (r *TaskRunner) Submit2(taskId uint64, parameters map[string]any, execution
 			zap.Error(err))
 		return
 	}
+	if tsk.Parameters == nil {
+		tsk.Parameters = make(map[string]any)
+	}
+	for k, v := range parameters {
+		tsk.Parameters[k] = v
+	}
 
-	r.Submit(tsk, exec)
+	r.submit(tsk, exec)
 }
 
 // worker 工作协程
@@ -387,6 +392,8 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *task.Task, executio
 		}
 		defer resp.Body.Close()
 
+		fmt.Println(url)
+		fmt.Println("结果是:", resp.StatusCode)
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 			return fmt.Errorf("executor returned status %d", resp.StatusCode)
 		}

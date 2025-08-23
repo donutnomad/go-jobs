@@ -189,7 +189,7 @@ func (r *MysqlRepositoryImpl) CountByTaskStatusesAndTimeRange(ctx context.Contex
 }
 
 func (r *MysqlRepositoryImpl) GetAvgDuration(ctx context.Context, taskID uint64, startTime time.Time) (float64, error) {
-	var avgDuration float64
+	var avgDuration *float64
 	err := r.Db(ctx).Model(&TaskExecution{}).
 		Where("task_id = ?", taskID).
 		Where("created_at >= ?", startTime).
@@ -197,5 +197,15 @@ func (r *MysqlRepositoryImpl) GetAvgDuration(ctx context.Context, taskID uint64,
 		Where("end_time IS NOT NULL").
 		Select("AVG(TIMESTAMPDIFF(SECOND, start_time, end_time))").
 		Scan(&avgDuration).Error
-	return avgDuration, err
+	
+	if err != nil {
+		return 0, err
+	}
+	
+	// 如果没有匹配的记录，AVG返回NULL，返回0
+	if avgDuration == nil {
+		return 0, nil
+	}
+	
+	return *avgDuration, nil
 }

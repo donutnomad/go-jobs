@@ -330,6 +330,7 @@ func (s *Scheduler) scheduleTask(task *task.Task) {
 
 	// 创建执行记录
 	exec := &execution.TaskExecution{
+		ID:            uint64(idgen.NextId()),
 		TaskID:        task.ID,
 		ScheduledTime: time.Now(),
 		Status:        execution.ExecutionStatusPending,
@@ -343,7 +344,7 @@ func (s *Scheduler) scheduleTask(task *task.Task) {
 	}
 
 	// 提交到任务执行器
-	s.taskRunner.Submit(task, exec)
+	s.taskRunner.submit(task, exec)
 }
 
 // checkExecutionMode 检查执行模式

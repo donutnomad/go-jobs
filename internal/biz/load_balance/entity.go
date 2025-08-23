@@ -11,4 +11,5 @@ type LoadBalanceState struct {
 	RoundRobinIndex  int
 	StickyExecutorID *uint64
 	UpdatedAt        time.Time
+	CreatedAt        time.Time
 }

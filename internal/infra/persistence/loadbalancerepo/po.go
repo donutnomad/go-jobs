@@ -23,6 +23,7 @@ func (po *LoadBalanceStatePO) ToDomain() *domain.LoadBalanceState {
 		RoundRobinIndex: po.RoundRobinIndex,
 		LastExecutorID:  po.LastExecutorID,
 		UpdatedAt:       po.UpdatedAt,
+		CreatedAt:       po.CreatedAt,
 	}
 }
 
@@ -34,5 +35,6 @@ func (po *LoadBalanceStatePO) FromDomain(d *domain.LoadBalanceState) *LoadBalanc
 	if !d.UpdatedAt.IsZero() {
 		po.UpdatedAt = d.UpdatedAt
 	}
+	po.CreatedAt = d.CreatedAt
 	return po
 }

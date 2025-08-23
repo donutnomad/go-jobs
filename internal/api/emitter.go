@@ -20,7 +20,7 @@ func NewEventBus(scheduler *scheduler.Scheduler, taskRunner *scheduler.TaskRunne
 }
 
 func (e *EventBus) SubmitNewTask(taskID uint64, parameters map[string]any, executionID uint64) error {
-	e.taskRunner.Submit2(taskID, parameters, executionID)
+	e.taskRunner.Submit(taskID, parameters, executionID)
 	return nil
 }
 

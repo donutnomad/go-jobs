@@ -194,10 +194,10 @@ func (e *ExecutionAPI) Stats(ctx *gin.Context, req ExecutionStatsReq) (*Executio
 
 func (e *ExecutionAPI) List(ctx *gin.Context, req ListExecutionReq) (ListExecutionResp, error) {
 	executions, total, err := e.executionRepo.List(ctx, execution.ListFilter{
-		StartTime: mo.Some(req.StartTime),
-		EndTime:   mo.Some(req.EndTime),
-		TaskID:    mo.Some(req.TaskID),
-		Status:    mo.Some(req.Status),
+		StartTime: mo.EmptyableToOption(req.StartTime),
+		EndTime:   mo.EmptyableToOption(req.EndTime),
+		TaskID:    mo.EmptyableToOption(req.TaskID),
+		Status:    mo.EmptyableToOption(req.Status),
 	}, req.GetOffset(), req.GetLimit())
 	if err != nil {
 		return ListExecutionResp{}, err

@@ -42,6 +42,7 @@ func (r *MysqlRepositoryImpl) Create(ctx context.Context, state *domain.LoadBala
 	if err != nil {
 		return err
 	}
+	state.CreatedAt = po.CreatedAt
 	state.UpdatedAt = po.UpdatedAt
 	return nil
 }
