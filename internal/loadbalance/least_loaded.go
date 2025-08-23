@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jobs/scheduler/internal/biz/executor"
+	"github.com/jobs/scheduler/internal/infra/persistence/executionrepo"
 	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
 )
@@ -19,7 +21,7 @@ func NewLeastLoadedStrategy(storage *orm.Storage) *LeastLoadedStrategy {
 	}
 }
 
-func (s *LeastLoadedStrategy) Select(ctx context.Context, taskID string, executors []*models.Executor) (*models.Executor, error) {
+func (s *LeastLoadedStrategy) Select(ctx context.Context, taskID uint64, executors []*executor.Executor) (*executor.Executor, error) {
 	if len(executors) == 0 {
 		return nil, fmt.Errorf("no available executors")
 	}
@@ -35,7 +37,7 @@ func (s *LeastLoadedStrategy) Select(ctx context.Context, taskID string, executo
 		var count int64
 		// 统计所有同名执行器的运行任务总数
 		err := s.storage.DB().
-			Model(&models.TaskExecution{}).
+			Model(&executionrepo.TaskExecution{}).
 			Joins("JOIN executors ON executors.id = task_executions.executor_id").
 			Where("executors.name = ? AND task_executions.status = ?", exec.Name, models.ExecutionStatusRunning).
 			Count(&count).Error

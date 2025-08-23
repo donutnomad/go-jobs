@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jobs/scheduler/internal/infra/persistence/taskrepo"
 	"gorm.io/gorm"
 )
 
@@ -23,56 +24,7 @@ type Executor struct {
 	UpdatedAt           time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 
 	// 在应用层手动填充的关联字段（不使用GORM关联）
-	TaskExecutors []TaskExecutor `gorm:"-" json:"task_executors,omitempty"`
-}
-
-func (e *Executor) GetHealthCheckURL() string {
-	if e.HealthCheckURL != "" {
-		return e.HealthCheckURL
-	}
-	return fmt.Sprintf("%s/health", e.BaseURL)
-}
-
-func (e *Executor) GetStopURL() string {
-	return fmt.Sprintf("%s/stop", e.BaseURL)
-}
-
-func (e *Executor) GetExecURL() string {
-	return fmt.Sprintf("%s/execute", e.BaseURL)
-}
-
-func (e *Executor) SetStatus(status ExecutorStatus) {
-	e.Status = status
-	if status == ExecutorStatusOnline {
-		e.SetToOnline()
-	}
-}
-
-func (e *Executor) SetToOnline() {
-	e.Status = ExecutorStatusOnline
-	e.IsHealthy = true
-	e.HealthCheckFailures = 0
-}
-
-func (Executor) TableName() string {
-	return "executors"
-}
-
-type TaskExecutor struct {
-	ID           string    `gorm:"primaryKey;size:64" json:"id"`
-	TaskID       string    `gorm:"size:64;not null;uniqueIndex:uk_task_executor;index" json:"task_id"`
-	ExecutorName string    `gorm:"size:255;not null;uniqueIndex:uk_task_executor;index:idx_executor_name" json:"executor_name"`
-	Priority     int       `gorm:"default:0" json:"priority"`
-	Weight       int       `gorm:"default:1" json:"weight"`
-	CreatedAt    time.Time `gorm:"autoCreateTime" json:"created_at"`
-
-	// 在应用层手动填充的关联字段（不使用GORM关联）
-	Task     *Task     `gorm:"-" json:"task,omitempty"`
-	Executor *Executor `gorm:"-" json:"executor,omitempty"`
-}
-
-func (TaskExecutor) TableName() string {
-	return "task_executors"
+	TaskExecutors []taskrepo.TaskAssignmentPo `gorm:"-" json:"task_executors,omitempty"`
 }
 
 type ExecutorRepo struct {
@@ -83,7 +35,7 @@ func NewExecutorRepo(db *gorm.DB) *ExecutorRepo {
 	return &ExecutorRepo{db: db}
 }
 
-func (r *ExecutorRepo) GetHealthyExecutors(ctx context.Context, taskID string) ([]*Executor, error) {
+func (r *ExecutorRepo) GetHealthyExecutors(ctx context.Context, taskID uint64) ([]*Executor, error) {
 	var executors []*Executor
 	query := r.db.WithContext(ctx).
 		Joins("JOIN task_executors ON task_executors.executor_name = executors.name").

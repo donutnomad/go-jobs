@@ -1,15 +1,18 @@
 package api
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/jobs/scheduler/internal/models"
+	"github.com/jobs/scheduler/internal/biz/executor"
+	"github.com/jobs/scheduler/internal/biz/task"
+	"github.com/samber/lo"
+	"github.com/samber/mo"
+	"github.com/yitter/idgenerator-go/idgen"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -18,318 +21,300 @@ type IExecutorAPI interface {
 	// List 获取执行器列表
 	// 获取所有的执行器列表
 	// @GET(api/v1/executors)
-	List(ctx *gin.Context, req ListExecutorReq) ([]*models.Executor, error)
+	List(ctx *gin.Context, req ListExecutorReq) ([]*ExecutorResp, error)
 
 	// Get 获取执行器详情
 	// 获取指定id的执行器详情
 	// @GET(api/v1/executors/{id})
-	Get(ctx *gin.Context, id string) (*models.Executor, error)
-
-	// Register 注册执行器
-	// 注册一个新执行器
-	// @POST(api/v1/executors/register)
-	Register(ctx *gin.Context, req RegisterExecutorReq) (*models.Executor, error)
+	Get(ctx *gin.Context, id uint64) (*ExecutorResp, error)
 
 	// Update 更新执行器
 	// 更新指定id的执行器
 	// @PUT(api/v1/executors/{id})
-	Update(ctx *gin.Context, id string, req UpdateExecutorReq) (models.Executor, error)
+	Update(ctx *gin.Context, id uint64, req UpdateExecutorReq) (*ExecutorResp, error)
 
 	// UpdateStatus 更新执行器状态
 	// 更新指定id的执行器状态
 	// @PUT(api/v1/executors/{id}/status)
-	UpdateStatus(ctx *gin.Context, id string, req UpdateExecutorStatusReq) (string, error)
+	UpdateStatus(ctx *gin.Context, id uint64, req UpdateExecutorStatusReq) (string, error)
 
 	// Delete 删除执行器
 	// 删除指定id的执行器
 	// @DELETE(api/v1/executors/{id})
-	Delete(ctx *gin.Context, id string) (string, error)
+	Delete(ctx *gin.Context, id uint64) (string, error)
+
+	// Register 注册执行器
+	// 注册一个新执行器
+	// @POST(api/v1/executors/register)
+	Register(ctx *gin.Context, req RegisterExecutorReq) (*ExecutorResp, error)
 }
 
 type ExecutorAPI struct {
 	db     *gorm.DB
 	logger *zap.Logger
 	mu     sync.RWMutex
+
+	usecase      *executor.Usecase
+	executorRepo executor.Repo
+	taskRepo     task.Repo
 }
 
-func NewExecutorAPI(db *gorm.DB, logger *zap.Logger) IExecutorAPI {
-	return &ExecutorAPI{db: db, logger: logger, mu: sync.RWMutex{}}
+func NewExecutorAPI(db *gorm.DB,
+	logger *zap.Logger,
+	executorRepo executor.Repo,
+	taskRepo task.Repo) IExecutorAPI {
+	return &ExecutorAPI{
+		db:           db,
+		logger:       logger,
+		mu:           sync.RWMutex{},
+		executorRepo: executorRepo,
+		taskRepo:     taskRepo,
+		usecase:      executor.NewUsecase(executorRepo),
+	}
 }
 
-func (e *ExecutorAPI) List(ctx *gin.Context, req ListExecutorReq) ([]*models.Executor, error) {
-	var executors []*models.Executor
-	if err := e.db.WithContext(ctx).Find(&executors).Error; err != nil {
-		return nil, fmt.Errorf("failed to list executors: %w", err)
+func (e *ExecutorAPI) List(ctx *gin.Context, req ListExecutorReq) ([]*ExecutorResp, error) {
+	executors, err := e.executorRepo.List(ctx, 0, 10_0000)
+	if err != nil {
+		return nil, err
 	}
 
-	// 统计每个执行器的运行任务数
-	for _, exec := range executors {
-		var count int64
-		e.db.Model(&models.TaskExecution{}).
-			Where("executor_id = ? AND status = ?", exec.ID, models.ExecutionStatusRunning).
-			Count(&count)
-	}
-
-	// 为每个执行器加载关联的任务（直接加载，不再依赖include_tasks参数）
+	var ret []*ExecutorResp
 	for _, exe := range executors {
-		var taskExecutors []models.TaskExecutor
-		err := e.db.
-			Where("executor_name = ?", exe.Name).
-			Find(&taskExecutors).Error
+		taskAssignments, err := e.taskRepo.ListAssignmentsWithExecutor(ctx, exe.Name)
 		if err != nil {
-			e.logger.Error("failed to load task executors",
-				zap.String("executor_name", exe.Name),
-				zap.Error(err))
-			continue
+			return nil, err
 		}
-		
-		// 为每个TaskExecutor加载关联的Task信息
-		for i := range taskExecutors {
-			var task models.Task
-			if err := e.db.Where("id = ?", taskExecutors[i].TaskID).First(&task).Error; err == nil {
-				taskExecutors[i].Task = &task
+		exeRet := new(ExecutorResp).FromDomain(exe)
+		for _, assignment := range taskAssignments {
+			assignment2 := new(TaskAssignmentResp2).FromDomain(assignment)
+			task_, err := e.taskRepo.GetByID(ctx, assignment.TaskID)
+			if err != nil {
+				return nil, err
 			}
+			assignment2.Task = new(TaskResp).FromDomain(task_)
+			exeRet.TaskAssignments = append(exeRet.TaskAssignments, assignment2)
 		}
-		
-		// 在应用层手动填充关联数据
-		exe.TaskExecutors = taskExecutors
+		ret = append(ret, exeRet)
 	}
-	sort.Slice(executors, func(i, j int) bool {
-		return executors[i].Status.ToInt() < executors[j].Status.ToInt()
+	sort.Slice(ret, func(i, j int) bool {
+		return ret[i].Status.ToInt() < ret[j].Status.ToInt()
 	})
-	return executors, nil
+	return ret, nil
 }
 
-func (e *ExecutorAPI) Get(ctx *gin.Context, id string) (*models.Executor, error) {
-	var exec models.Executor
-	if err := e.db.WithContext(ctx).Where("id = ?", id).First(&exec).Error; err != nil {
-		return nil, fmt.Errorf("executor not found: %w", err)
-	}
-	
-	// 手动加载关联的TaskExecutors
-	var taskExecutors []models.TaskExecutor
-	if err := e.db.Where("executor_name = ?", exec.Name).Find(&taskExecutors).Error; err == nil {
-		// 为每个TaskExecutor加载关联的Task信息
-		for i := range taskExecutors {
-			var task models.Task
-			if err := e.db.Where("id = ?", taskExecutors[i].TaskID).First(&task).Error; err == nil {
-				taskExecutors[i].Task = &task
-			}
-		}
-		exec.TaskExecutors = taskExecutors
-	}
-	
-	return &exec, nil
+type ExecutorResp struct {
+	ID                  uint64                  `json:"id"`
+	CreatedAt           time.Time               `json:"created_at"`
+	UpdatedAt           time.Time               `json:"updated_at"`
+	Name                string                  `json:"name"`
+	InstanceID          string                  `json:"instance_id"`
+	BaseURL             string                  `json:"base_url"`
+	HealthCheckURL      string                  `json:"health_check_url"`
+	Status              executor.ExecutorStatus `json:"status"`
+	IsHealthy           bool                    `json:"is_healthy"`
+	LastHealthCheck     *time.Time              `json:"last_health_check"`
+	HealthCheckFailures int                     `json:"health_check_failures"`
+	Metadata            map[string]any          `json:"metadata"`
+	TaskAssignments     []*TaskAssignmentResp2  `json:"task_executors,omitempty"`
 }
 
-func (e *ExecutorAPI) Update(ctx *gin.Context, id string, req UpdateExecutorReq) (models.Executor, error) {
-	// 查找执行器
-	var ret models.Executor
-	if err := e.db.Where("id = ?", id).First(&ret).Error; err != nil {
-		return models.Executor{}, err
+func (t *ExecutorResp) FromDomain(in *executor.Executor) *ExecutorResp {
+	return &ExecutorResp{
+		ID:                  in.ID,
+		CreatedAt:           in.CreatedAt,
+		UpdatedAt:           in.UpdatedAt,
+		Name:                in.Name,
+		InstanceID:          in.InstanceID,
+		BaseURL:             in.BaseURL,
+		HealthCheckURL:      in.HealthCheckURL,
+		Status:              in.Status,
+		IsHealthy:           in.IsHealthy,
+		LastHealthCheck:     in.LastHealthCheck,
+		HealthCheckFailures: in.HealthCheckFailures,
+		Metadata:            in.Metadata,
 	}
+}
 
-	// 更新字段
-	if req.Name != "" {
-		ret.Name = req.Name
-	}
-	if req.BaseURL != "" {
-		ret.BaseURL = req.BaseURL
-	}
-	if req.HealthCheckURL != "" {
-		ret.HealthCheckURL = req.HealthCheckURL
-	}
+type TaskAssignmentResp2 struct {
+	TaskAssignmentResp
+	Task *TaskResp `json:"task"`
+}
 
-	// 保存更新
-	if err := e.db.Save(&ret).Error; err != nil {
-		return models.Executor{}, err
+func (t *TaskAssignmentResp2) FromDomain(in *task.TaskAssignment) *TaskAssignmentResp2 {
+	return &TaskAssignmentResp2{
+		TaskAssignmentResp: *new(TaskAssignmentResp).FromDomain(in),
 	}
+}
+
+func (e *ExecutorAPI) Get(ctx *gin.Context, id uint64) (*ExecutorResp, error) {
+	exec, err := e.executorRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	} else if exec == nil {
+		return nil, fmt.Errorf("executor not found")
+	}
+	ret := new(ExecutorResp).FromDomain(exec)
+
+	assignments, err := e.taskRepo.ListAssignmentsWithExecutor(ctx, exec.Name)
+	if err != nil {
+		return nil, err
+	}
+	ret.TaskAssignments = lo.Map(assignments, func(assignment *task.TaskAssignment, _ int) *TaskAssignmentResp2 {
+		return new(TaskAssignmentResp2).FromDomain(assignment)
+	})
 
 	return ret, nil
 }
 
-func (e *ExecutorAPI) UpdateStatus(ctx *gin.Context, id string, req UpdateExecutorStatusReq) (string, error) {
-	var exec models.Executor
-	if err := e.db.WithContext(ctx).Where("id = ?", id).First(&exec).Error; err != nil {
-		return "", fmt.Errorf("executor not found: %w", err)
+func (e *ExecutorAPI) Update(ctx *gin.Context, id uint64, req UpdateExecutorReq) (*ExecutorResp, error) {
+	exec, err := e.usecase.Update(ctx, id, &executor.ExecutorPatch{
+		Name:           mo.Some(req.Name).ToPointer(),
+		BaseURL:        mo.Some(req.BaseURL).ToPointer(),
+		HealthCheckURL: mo.Some(req.HealthCheckURL).ToPointer(),
+	})
+	if err != nil {
+		return nil, err
 	}
-	exec.SetStatus(req.Status)
-	if err := e.db.Save(&exec).Error; err != nil {
-		return "", fmt.Errorf("failed to update executor status: %w", err)
+	return new(ExecutorResp).FromDomain(exec), nil
+}
+
+func (e *ExecutorAPI) UpdateStatus(ctx *gin.Context, id uint64, req UpdateExecutorStatusReq) (string, error) {
+	_, err := e.usecase.UpdateStatus(ctx, id, req.Status)
+	if err != nil {
+		return "", err
 	}
 	return "status updated", nil
 }
 
-func (e *ExecutorAPI) Delete(ctx *gin.Context, id string) (string, error) {
-	if err := e.db.Transaction(func(tx *gorm.DB) error {
-		// 先查找执行器获取其名称
-		var exec models.Executor
-		if err := tx.Where("id = ?", id).First(&exec).Error; err != nil {
+func (e *ExecutorAPI) Delete(ctx *gin.Context, id uint64) (string, error) {
+	err := e.executorRepo.Execute(ctx, func(ctx context.Context) error {
+		exec, err := e.executorRepo.GetByID(ctx, id)
+		if err != nil {
 			return err
 		}
-
-		// 删除基于executor_name的TaskExecutor关联
-		if err := tx.Where("executor_name = ?", exec.Name).Delete(&models.TaskExecutor{}).Error; err != nil {
+		if exec == nil {
+			return fmt.Errorf("executor not found")
+		}
+		if err := e.taskRepo.DeleteAssignmentsByExecutorName(ctx, exec.Name); err != nil {
 			return err
 		}
-
-		// 删除执行器本身
-		if err := tx.Where("id = ?", id).Delete(&models.Executor{}).Error; err != nil {
+		if err := e.executorRepo.Delete(ctx, id); err != nil {
 			return err
 		}
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return "", err
 	}
 	return "executor deleted", nil
 }
 
-func (e *ExecutorAPI) Register(ctx *gin.Context, req RegisterExecutorReq) (*models.Executor, error) {
+func (e *ExecutorAPI) Register(ctx *gin.Context, req RegisterExecutorReq) (*ExecutorResp, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// 检查是否存在使用相同 instance_id 的执行器
-	var executor models.Executor
-	err := e.db.Where("instance_id = ?", req.ExecutorID).First(&executor).Error
+	var exec *executor.Executor
 
-	if err == nil {
-		// 如果执行器已存在且在线，拒绝注册（防止挤掉别人）
-		if executor.Status == models.ExecutorStatusOnline {
-			// 检查是否是同一个执行器重新注册（通过 BaseURL 判断）
-			if executor.BaseURL != req.ExecutorURL {
-				return nil, fmt.Errorf("executor with instance_id %s is already online from different location (current: %s, new: %s)",
-					req.ExecutorID, executor.BaseURL, req.ExecutorURL)
+	err := e.executorRepo.Execute(ctx, func(ctx context.Context) error {
+		var err error
+		exec, err = e.executorRepo.GetByInstanceID(ctx, req.ExecutorID)
+		if err != nil {
+			return err
+		}
+		if exec != nil {
+			// 如果执行器已存在且在线，拒绝注册（防止挤掉别人）
+			if exec.Status == executor.ExecutorStatusOnline {
+				// 检查是否是同一个执行器重新注册（通过 BaseURL 判断）
+				if exec.BaseURL != req.ExecutorURL {
+					return fmt.Errorf("executor with instance_id %s is already online from different location (current: %s, new: %s)",
+						req.ExecutorID, exec.BaseURL, req.ExecutorURL)
+				}
+			}
+
+			// 更新现有执行器信息
+			exec.Name = req.ExecutorName
+			exec.BaseURL = req.ExecutorURL
+			exec.HealthCheckURL = req.HealthCheckURL
+			exec.Status = executor.ExecutorStatusOnline
+			exec.IsHealthy = true
+			exec.HealthCheckFailures = 0
+			exec.LastHealthCheck = lo.ToPtr(time.Now())
+
+			if err := e.executorRepo.Save(ctx, exec); err != nil {
+				return fmt.Errorf("failed to update executor: %w", err)
+			}
+		} else {
+			// 不存在
+			exec = &executor.Executor{
+				ID:                  uint64(idgen.NextId()),
+				Name:                req.ExecutorName,
+				InstanceID:          req.ExecutorID,
+				BaseURL:             req.ExecutorURL,
+				HealthCheckURL:      req.HealthCheckURL,
+				CreatedAt:           time.Time{},
+				UpdatedAt:           time.Time{},
+				Status:              executor.ExecutorStatusOnline,
+				IsHealthy:           true,
+				LastHealthCheck:     lo.ToPtr(time.Now()),
+				HealthCheckFailures: 0,
+				Metadata:            req.Metadata,
+			}
+			if err := e.executorRepo.Create(ctx, exec); err != nil {
+				return fmt.Errorf("failed to create executor: %w", err)
 			}
 		}
-
-		// 更新现有执行器信息
-		executor.Name = req.ExecutorName
-		executor.BaseURL = req.ExecutorURL
-		executor.HealthCheckURL = req.HealthCheckURL
-		executor.Status = models.ExecutorStatusOnline
-		executor.IsHealthy = true
-		executor.HealthCheckFailures = 0
-		var now = time.Now()
-		executor.LastHealthCheck = &now
-
-		if err := e.db.Save(&executor).Error; err != nil {
-			return nil, fmt.Errorf("failed to update executor: %w", err)
-		}
-	} else if errors.Is(err, gorm.ErrRecordNotFound) {
-		// ExecutorID不存在，创建新执行器
-		var now = time.Now()
-		executor = models.Executor{
-			ID:                  uuid.New().String(),
-			Name:                req.ExecutorName,
-			InstanceID:          req.ExecutorID,
-			BaseURL:             req.ExecutorURL,
-			HealthCheckURL:      req.HealthCheckURL,
-			Status:              models.ExecutorStatusOnline,
-			IsHealthy:           true,
-			HealthCheckFailures: 0,
-			LastHealthCheck:     &now,
-			Metadata:            req.Metadata,
-		}
-		if err := e.db.Create(&executor).Error; err != nil {
-			return nil, fmt.Errorf("failed to create executor: %w", err)
-		}
-	} else {
-		return nil, fmt.Errorf("failed to query executor: %w", err)
-	}
-
-	// 注册任务
-	if len(req.Tasks) > 0 {
-		for _, taskDef := range req.Tasks {
-			if err := e.registerTask(executor.Name, taskDef); err != nil {
-				e.logger.Error("failed to register task",
-					zap.String("executor_name", executor.Name),
-					zap.String("task_name", taskDef.Name),
-					zap.Error(err))
-				// 继续处理其他任务，不因为单个任务失败而终止
+		// 注册任务
+		for _, def := range req.Tasks {
+			if err := e.registerTask(ctx, exec.Name, def); err != nil {
+				return err
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	e.logger.Info("executor registered",
-		zap.String("executor_id", executor.ID),
-		zap.String("instance_id", executor.InstanceID),
-		zap.String("name", executor.Name),
-		zap.Int("tasks_count", len(req.Tasks)))
-
-	return &executor, nil
+	return new(ExecutorResp).FromDomain(exec), nil
 }
 
-func (e *ExecutorAPI) registerTask(executorName string, taskDef TaskDefinition) error {
-	// 查找任务（按名称）
-	var task models.Task
-	err := e.db.Where("name = ?", taskDef.Name).First(&task).Error
-
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		// 任务不存在，创建新任务
-		task = models.Task{
-			ID:                  uuid.New().String(),
+func (e *ExecutorAPI) registerTask(ctx context.Context, executorName string, taskDef TaskDefinition) error {
+	task_, err := e.taskRepo.GetByName(ctx, taskDef.Name)
+	if err != nil {
+		return err
+	}
+	if task_ == nil {
+		task_ = &task.Task{
+			ID:                  uint64(idgen.NextId()),
+			CreatedAt:           time.Time{},
+			UpdatedAt:           time.Time{},
 			Name:                taskDef.Name,
 			CronExpression:      taskDef.CronExpression,
-			Parameters:          taskDef.Parameters,
-			ExecutionMode:       taskDef.ExecutionMode,
-			LoadBalanceStrategy: taskDef.LoadBalanceStrategy,
-			MaxRetry:            taskDef.MaxRetry,
-			TimeoutSeconds:      taskDef.TimeoutSeconds,
-			Status:              taskDef.Status,
+			ExecutionMode:       taskDef.GetExecutionMode(),
+			LoadBalanceStrategy: taskDef.GetLoadBalanceStrategy(),
+			MaxRetry:            taskDef.GetMaxRetry(),
+			TimeoutSeconds:      taskDef.GetTimeoutSeconds(),
+			Status:              taskDef.GetStatus(),
+			Parameters:          taskDef.GetParameters(),
+			Assignments:         nil,
 		}
-
-		// 设置默认值
-		if task.MaxRetry == 0 {
-			task.MaxRetry = 3
-		}
-		if task.TimeoutSeconds == 0 {
-			task.TimeoutSeconds = 300
-		}
-		if task.Status == "" {
-			task.Status = models.TaskStatusPaused // 默认为暂停状态
-		}
-		if task.Parameters == nil {
-			task.Parameters = make(map[string]any)
-		}
-
-		if err := e.db.Create(&task).Error; err != nil {
+		if err := e.taskRepo.Create(ctx, task_); err != nil {
 			return fmt.Errorf("failed to create task: %w", err)
 		}
-
-		e.logger.Info("task created",
-			zap.String("task_id", task.ID),
-			zap.String("task_name", task.Name),
-			zap.String("status", string(task.Status)))
-	} else if err != nil {
-		return fmt.Errorf("failed to query task: %w", err)
+		return nil
 	}
-	// 如果任务存在，不修改任务信息（按需求）
 
-	// 检查任务执行器关联是否已存在
-	var taskExecutor models.TaskExecutor
-	err = e.db.Where("task_id = ? AND executor_name = ?", task.ID, executorName).First(&taskExecutor).Error
-
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		// 创建新的任务执行器关联
-		taskExecutor = models.TaskExecutor{
-			ID:           uuid.New().String(),
-			TaskID:       task.ID,
-			ExecutorName: executorName,
-			Priority:     1, // 默认优先级
-			Weight:       1, // 默认权重
-		}
-
-		if err := e.db.Create(&taskExecutor).Error; err != nil {
-			return fmt.Errorf("failed to create task executor association: %w", err)
-		}
-
-		e.logger.Info("task executor association created",
-			zap.String("task_id", task.ID),
-			zap.String("executor_name", executorName))
-	} else if err != nil {
-		return fmt.Errorf("failed to query task executor: %w", err)
+	assignment, err := e.taskRepo.GetAssignmentByTaskIDAndExecutorName(ctx, task_.ID, executorName)
+	if err != nil {
+		return err
+	} else if assignment != nil {
+		return nil
 	}
-	// 如果关联已存在，不做修改
-
-	return nil
+	return e.taskRepo.CreateAssignment(ctx, &task.TaskAssignment{
+		ID:           uint64(idgen.NextId()),
+		TaskID:       task_.ID,
+		ExecutorName: executorName,
+		Priority:     1, // 默认优先级
+		Weight:       1, // 默认权重
+	})
 }

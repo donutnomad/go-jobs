@@ -9,9 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jobs/scheduler/internal/biz/execution"
+	"github.com/jobs/scheduler/internal/biz/executor"
+	"github.com/jobs/scheduler/internal/biz/task"
+	"github.com/jobs/scheduler/internal/infra/persistence/executionrepo"
 	"github.com/jobs/scheduler/internal/loadbalance"
 	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
+	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
 
@@ -91,14 +96,14 @@ type TaskRunner struct {
 
 	// 熔断器管理，每个执行器一个熔断器
 	breakerMu sync.RWMutex
-	breakers  map[string]*CircuitBreaker
+	breakers  map[uint64]*CircuitBreaker
 
-	callbackURL func(id string) string
+	callbackURL func(id uint64) string
 }
 
 type taskJob struct {
-	task      *models.Task
-	execution *models.TaskExecution
+	task      *task.Task
+	execution *execution.TaskExecution
 }
 
 // NewTaskRunner 创建任务执行器
@@ -107,7 +112,7 @@ func NewTaskRunner(
 	lbManager *loadbalance.Manager,
 	logger *zap.Logger,
 	maxWorkers int,
-	callbackURL func(id string) string,
+	callbackURL func(id uint64) string,
 ) *TaskRunner {
 	return &TaskRunner{
 		storage:   storage,
@@ -120,7 +125,7 @@ func NewTaskRunner(
 		taskCh:      make(chan *taskJob, maxWorkers*2),
 		stopCh:      make(chan struct{}),
 		timeouts:    make(map[string]*time.Timer),
-		breakers:    make(map[string]*CircuitBreaker),
+		breakers:    make(map[uint64]*CircuitBreaker),
 		callbackURL: callbackURL,
 	}
 }
@@ -152,39 +157,39 @@ func (r *TaskRunner) Stop() {
 }
 
 // Submit 提交任务
-func (r *TaskRunner) Submit(task *models.Task, execution *models.TaskExecution) {
+func (r *TaskRunner) Submit(task *task.Task, record *execution.TaskExecution) {
 	select {
-	case r.taskCh <- &taskJob{task: task, execution: execution}:
+	case r.taskCh <- &taskJob{task: task, execution: record}:
 		r.logger.Debug("task submitted",
-			zap.String("task_id", task.ID),
-			zap.String("execution_id", execution.ID))
+			zap.Uint64("task_id", task.ID),
+			zap.Uint64("execution_id", record.ID))
 	default:
 		r.logger.Warn("task queue is full, dropping task",
-			zap.String("task_id", task.ID),
-			zap.String("execution_id", execution.ID))
+			zap.Uint64("task_id", task.ID),
+			zap.Uint64("execution_id", record.ID))
 
 		// 更新执行状态为失败
-		execution.Status = models.ExecutionStatusFailed
-		execution.Logs = "Task queue is full"
+		record.Status = execution.ExecutionStatusFailed
+		record.Logs = "Task queue is full"
 		now := time.Now()
-		execution.EndTime = &now
-		r.storage.DB().Save(execution)
+		record.EndTime = &now
+		r.storage.DB().Save(record)
 	}
 }
 
-func (r *TaskRunner) Submit2(taskId string, executionId string) {
-	var task models.Task
+func (r *TaskRunner) Submit2(taskId uint64, parameters map[string]any, executionId uint64) {
+	var task task.Task
 	if err := r.storage.DB().Where("id = ?", taskId).First(&task).Error; err != nil {
 		r.logger.Error("failed to load task",
-			zap.String("task_id", taskId),
+			zap.Uint64("task_id", taskId),
 			zap.Error(err))
 		return
 	}
 
-	var execution models.TaskExecution
+	var execution executionrepo.TaskExecution
 	if err := r.storage.DB().Where("id = ?", executionId).First(&execution).Error; err != nil {
 		r.logger.Error("failed to load task execution",
-			zap.String("execution_id", executionId),
+			zap.Uint64("execution_id", executionId),
 			zap.Error(err))
 		return
 	}
@@ -210,7 +215,7 @@ func (r *TaskRunner) worker(id int) {
 }
 
 // executeTask 执行任务（使用循环替代递归，避免栈溢出）
-func (r *TaskRunner) executeTask(task *models.Task, execution *models.TaskExecution) {
+func (r *TaskRunner) executeTask(task *task.Task, execution *execution.TaskExecution) {
 	ctx := context.Background()
 
 	r.logger.Info("executing task",
@@ -243,8 +248,8 @@ func (r *TaskRunner) executeTask(task *models.Task, execution *models.TaskExecut
 				backoff = 30 * time.Second
 			}
 			r.logger.Info("retrying task execution",
-				zap.String("task_id", task.ID),
-				zap.String("execution_id", execution.ID),
+				zap.Uint64("task_id", task.ID),
+				zap.Uint64("execution_id", execution.ID),
 				zap.Int("attempt", attempt),
 				zap.Duration("backoff", backoff))
 			time.Sleep(backoff)
@@ -293,7 +298,7 @@ func (r *TaskRunner) executeTask(task *models.Task, execution *models.TaskExecut
 }
 
 // getOrCreateBreaker 获取或创建执行器的熔断器
-func (r *TaskRunner) getOrCreateBreaker(executorID string) *CircuitBreaker {
+func (r *TaskRunner) getOrCreateBreaker(executorID uint64) *CircuitBreaker {
 	r.breakerMu.RLock()
 	breaker, exists := r.breakers[executorID]
 	r.breakerMu.RUnlock()
@@ -336,7 +341,7 @@ func (r *TaskRunner) ResetBreaker(executorID string) {
 }
 
 // callExecutor 调用执行器（带熔断器保护）
-func (r *TaskRunner) callExecutor(ctx context.Context, task *models.Task, execution *models.TaskExecution, exec *models.Executor) error {
+func (r *TaskRunner) callExecutor(ctx context.Context, task *task.Task, execution *execution.TaskExecution, exec *executor.Executor) error {
 	// 获取该执行器的熔断器
 	breaker := r.getOrCreateBreaker(exec.ID)
 
@@ -350,7 +355,7 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *models.Task, execut
 			"task_id":      task.ID,
 			"task_name":    task.Name,
 			"parameters":   task.Parameters,
-			"callback_url": r.callbackURL(execution.ID),
+			// "callback_url": r.callbackURL(execution.ID),// TODO: fix
 		}
 
 		jsonData, err := json.Marshal(payload)
@@ -364,7 +369,7 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *models.Task, execut
 		}
 
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Execution-ID", execution.ID)
+		req.Header.Set("X-Execution-ID", cast.ToString(execution.ID))
 
 		// 发送请求
 		resp, err := r.httpClient.Do(req)
@@ -387,7 +392,7 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *models.Task, execut
 }
 
 // failExecution 标记执行失败
-func (r *TaskRunner) failExecution(execution *models.TaskExecution, reason string) {
+func (r *TaskRunner) failExecution(execution *executionrepo.TaskExecution, reason string) {
 	now := time.Now()
 	execution.Status = models.ExecutionStatusFailed
 	execution.EndTime = &now
@@ -441,7 +446,7 @@ func (r *TaskRunner) handleTimeout(executionID string) {
 	r.timeoutMu.Unlock()
 
 	// 重新加载执行记录
-	var current models.TaskExecution
+	var current executionrepo.TaskExecution
 	if err := r.storage.DB().Where("id = ?", executionID).First(&current).Error; err != nil {
 		r.logger.Error("failed to load execution",
 			zap.String("execution_id", executionID),

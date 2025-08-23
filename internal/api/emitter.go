@@ -1,11 +1,14 @@
 package api
 
-import "github.com/jobs/scheduler/internal/scheduler"
+import (
+	"github.com/jobs/scheduler/internal/scheduler"
+	"github.com/spf13/cast"
+)
 
 type IEmitter interface {
-	SubmitNewTask(taskID string, executionID string) error
+	SubmitNewTask(taskID uint64, parameters map[string]any, executionID uint64) error
 	ReloadTasks() error
-	CancelExecutionTimer(executionID string) error
+	CancelExecutionTimer(executionID uint64) error
 }
 
 type EventBus struct {
@@ -17,8 +20,8 @@ func NewEventBus(scheduler *scheduler.Scheduler, taskRunner *scheduler.TaskRunne
 	return &EventBus{scheduler: scheduler, taskRunner: taskRunner}
 }
 
-func (e *EventBus) SubmitNewTask(taskID string, executionID string) error {
-	e.taskRunner.Submit2(taskID, executionID)
+func (e *EventBus) SubmitNewTask(taskID uint64, parameters map[string]any, executionID uint64) error {
+	e.taskRunner.Submit2(taskID, parameters, executionID)
 	return nil
 }
 
@@ -26,7 +29,7 @@ func (e *EventBus) ReloadTasks() error {
 	return e.scheduler.ReloadTasks()
 }
 
-func (e *EventBus) CancelExecutionTimer(executionID string) error {
-	e.taskRunner.CancelTimeout(executionID)
+func (e *EventBus) CancelExecutionTimer(executionID uint64) error {
+	e.taskRunner.CancelTimeout(cast.ToString(executionID))
 	return nil
 }

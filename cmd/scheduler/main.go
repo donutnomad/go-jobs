@@ -19,6 +19,7 @@ import (
 	"github.com/jobs/scheduler/internal/scheduler"
 	"github.com/jobs/scheduler/pkg/config"
 	"github.com/jobs/scheduler/pkg/logger"
+	"github.com/yitter/idgenerator-go/idgen"
 	"go.uber.org/zap"
 )
 
@@ -27,6 +28,17 @@ func main() {
 	var configPath string
 	flag.StringVar(&configPath, "config", "configs/config.yaml", "path to config file")
 	flag.Parse()
+
+	// 创建 IdGeneratorOptions 对象，可在构造函数中输入 WorkerId：
+	var options = idgen.NewIdGeneratorOptions(20)
+	options.BaseTime = 1755937966000
+	options.WorkerIdBitLength = 6
+	// options.WorkerIdBitLength = 10  // 默认值6，限定 WorkerId 最大值为2^6-1，即默认最多支持64个节点。
+	// options.SeqBitLength = 6; // 默认值6，限制每毫秒生成的ID个数。若生成速度超过5万个/秒，建议加大 SeqBitLength 到 10。
+	// options.BaseTime = Your_Base_Time // 如果要兼容老系统的雪花算法，此处应设置为老系统的BaseTime。
+
+	idgen.SetIdGenerator(options)
+	fmt.Println(idgen.NextId())
 
 	// 加载配置
 	cfg, err := config.Load(configPath)

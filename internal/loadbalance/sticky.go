@@ -2,9 +2,11 @@ package loadbalance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
+	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
 	"gorm.io/gorm"
@@ -22,7 +24,7 @@ func NewStickyStrategy(storage *orm.Storage) *StickyStrategy {
 	}
 }
 
-func (s *StickyStrategy) Select(ctx context.Context, taskID string, executors []*models.Executor) (*models.Executor, error) {
+func (s *StickyStrategy) Select(ctx context.Context, taskID uint64, executors []*executor.Executor) (*executor.Executor, error) {
 	if len(executors) == 0 {
 		return nil, fmt.Errorf("no available executors")
 	}
@@ -33,7 +35,7 @@ func (s *StickyStrategy) Select(ctx context.Context, taskID string, executors []
 	// 获取或创建负载均衡状态
 	var state models.LoadBalanceState
 	err := s.storage.DB().Where("task_id = ?", taskID).First(&state).Error
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// 创建新状态，选择第一个执行器作为粘性执行器
 		selected := executors[0]
 		state = models.LoadBalanceState{

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jobs/scheduler/internal/biz/task"
+	"github.com/jobs/scheduler/internal/infra/persistence/executionrepo"
 	"github.com/jobs/scheduler/internal/loadbalance"
 	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
@@ -39,7 +41,7 @@ type Scheduler struct {
 }
 
 // New 创建调度器
-func New(cfg config.Config, storage *orm.Storage, logger *zap.Logger, callbackURL func(string) string) (*Scheduler, error) {
+func New(cfg config.Config, storage *orm.Storage, logger *zap.Logger, callbackURL func(uint64) string) (*Scheduler, error) {
 	sqlDB, err := storage.DB().DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sql.DB: %w", err)
@@ -246,9 +248,9 @@ func (s *Scheduler) loadAndScheduleTasks() error {
 	}
 
 	// 加载所有活跃任务
-	var tasks []models.Task
+	var tasks []task.Task
 	err := s.storage.DB().
-		Where("status = ?", models.TaskStatusActive).
+		Where("status = ?", task.TaskStatusActive).
 		Find(&tasks).Error
 	if err != nil {
 		return fmt.Errorf("failed to load tasks: %w", err)
@@ -288,7 +290,7 @@ func (s *Scheduler) ReloadTasks() error {
 }
 
 // scheduleTask 调度任务执行
-func (s *Scheduler) scheduleTask(task *models.Task) {
+func (s *Scheduler) scheduleTask(task *task.Task) {
 	ctx := context.Background()
 
 	s.logger.Info("scheduling task",
@@ -312,7 +314,7 @@ func (s *Scheduler) scheduleTask(task *models.Task) {
 	}
 
 	// 创建执行记录
-	execution := &models.TaskExecution{
+	execution := &executionrepo.TaskExecution{
 		ID:            uuid.New().String(),
 		TaskID:        task.ID,
 		ScheduledTime: time.Now(),
@@ -331,7 +333,7 @@ func (s *Scheduler) scheduleTask(task *models.Task) {
 }
 
 // checkExecutionMode 检查执行模式
-func (s *Scheduler) checkExecutionMode(ctx context.Context, task *models.Task) (bool, error) {
+func (s *Scheduler) checkExecutionMode(ctx context.Context, task *task.Task) (bool, error) {
 	switch task.ExecutionMode {
 	case models.ExecutionModeParallel:
 		// 并行模式，总是执行
@@ -341,7 +343,7 @@ func (s *Scheduler) checkExecutionMode(ctx context.Context, task *models.Task) (
 		// 串行模式，检查是否有正在运行的任务
 		var count int64
 		err := s.storage.DB().
-			Model(&models.TaskExecution{}).
+			Model(&executionrepo.TaskExecution{}).
 			Where("task_id = ? AND status IN ?", task.ID,
 				[]models.ExecutionStatus{models.ExecutionStatusPending, models.ExecutionStatusRunning}).
 			Count(&count).Error
@@ -354,7 +356,7 @@ func (s *Scheduler) checkExecutionMode(ctx context.Context, task *models.Task) (
 		// 跳过模式，如果有正在运行的任务则跳过
 		var count int64
 		err := s.storage.DB().
-			Model(&models.TaskExecution{}).
+			Model(&executionrepo.TaskExecution{}).
 			Where("task_id = ? AND status IN ?", task.ID,
 				[]models.ExecutionStatus{models.ExecutionStatusPending, models.ExecutionStatusRunning}).
 			Count(&count).Error
@@ -364,7 +366,7 @@ func (s *Scheduler) checkExecutionMode(ctx context.Context, task *models.Task) (
 
 		if count > 0 {
 			// 创建跳过记录
-			execution := &models.TaskExecution{
+			execution := &executionrepo.TaskExecution{
 				ID:            uuid.New().String(),
 				TaskID:        task.ID,
 				ScheduledTime: time.Now(),

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/jobs/scheduler/internal/biz/executor"
+	"github.com/jobs/scheduler/internal/infra/persistence/taskrepo"
 	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
 	"gorm.io/gorm"
@@ -23,7 +25,7 @@ func NewWeightedRoundRobinStrategy(storage *orm.Storage) *WeightedRoundRobinStra
 	}
 }
 
-func (s *WeightedRoundRobinStrategy) Select(ctx context.Context, taskID string, executors []*models.Executor) (*models.Executor, error) {
+func (s *WeightedRoundRobinStrategy) Select(ctx context.Context, taskID uint64, executors []*executor.Executor) (*executor.Executor, error) {
 	if len(executors) == 0 {
 		return nil, fmt.Errorf("no available executors")
 	}
@@ -32,7 +34,7 @@ func (s *WeightedRoundRobinStrategy) Select(ctx context.Context, taskID string, 
 	defer s.mu.Unlock()
 
 	// 获取执行器权重信息
-	var taskExecutors []models.TaskExecutor
+	var taskExecutors []taskrepo.TaskAssignmentPo
 	err := s.storage.DB().
 		Where("task_id = ?", taskID).
 		Find(&taskExecutors).Error

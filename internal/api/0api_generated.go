@@ -9,7 +9,7 @@ import (
 	strings "strings"
 
 	gin "github.com/gin-gonic/gin"
-	models "github.com/jobs/scheduler/internal/models"
+	cast "github.com/spf13/cast"
 )
 
 func NewCommonAPIWrap(inner ICommonAPI) *CommonAPIWrap {
@@ -128,7 +128,7 @@ func (a *ExecutionAPIWrap) bind(router gin.IRoutes, method, path string, preHand
 // @Description 获取所有的任务列表
 // @Produce json
 // @Param req query GetTasksReq true "req"
-// @Success 200 {object} []models.Task
+// @Success 200 {object} []*TaskWithAssignmentsResp
 // @Router api/v1/tasks [get]
 func (a *ExecutionAPIWrap) List(ctx *gin.Context) {
 	var req ListExecutionReq
@@ -143,13 +143,13 @@ func (a *ExecutionAPIWrap) List(ctx *gin.Context) {
 // @Summary 获取任务详情
 // @Description 获取指定id的任务详情
 // @Produce json
-// @Param id path string true "id"
-// @Success 200 {object} models.Task
+// @Param id path integer true "id"
+// @Success 200 {object} *TaskWithAssignmentsResp
 // @Router api/v1/tasks/{id} [get]
 func (a *ExecutionAPIWrap) Get(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	result, err := a.inner.Get(ctx, id)
-	onGinResponse[*models.TaskExecution](ctx, result, err)
+	onGinResponse[*TaskExecutionResp](ctx, result, err)
 }
 
 // Stats
@@ -157,7 +157,7 @@ func (a *ExecutionAPIWrap) Get(ctx *gin.Context) {
 // @Description 获取指定任务的执行统计
 // @Produce json
 // @Param req query ExecutionStatsReq true "req"
-// @Success 200 {object} ExecutionStatsResp
+// @Success 200 {object} *ExecutionStatsResp
 // @Router api/v1/executions/stats [get]
 func (a *ExecutionAPIWrap) Stats(ctx *gin.Context) {
 	var req ExecutionStatsReq
@@ -165,19 +165,19 @@ func (a *ExecutionAPIWrap) Stats(ctx *gin.Context) {
 		return
 	}
 	result, err := a.inner.Stats(ctx, req)
-	onGinResponse[ExecutionStatsResp](ctx, result, err)
+	onGinResponse[*ExecutionStatsResp](ctx, result, err)
 }
 
 // Callback
 // @Summary 执行回调
 // @Description 执行指定id的执行回调
 // @Produce json
-// @Param id path string true "id"
+// @Param id path integer true "id"
 // @Param req body ExecutionCallbackRequest true "req"
 // @Success 200 {object} string
 // @Router api/v1/executions/{id}/callback [post]
 func (a *ExecutionAPIWrap) Callback(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	var req ExecutionCallbackRequest
 	if !onGinBind(ctx, &req, "JSON") {
 		return
@@ -190,11 +190,11 @@ func (a *ExecutionAPIWrap) Callback(ctx *gin.Context) {
 // @Summary 停止执行
 // @Description 停止指定id的执行
 // @Produce json
-// @Param id path string true "id"
+// @Param id path integer true "id"
 // @Success 200 {object} string
 // @Router api/v1/executions/{id}/stop [post]
 func (a *ExecutionAPIWrap) Stop(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	result, err := a.inner.Stop(ctx, id)
 	onGinResponse[string](ctx, result, err)
 }
@@ -250,7 +250,7 @@ func (a *ExecutorAPIWrap) bind(router gin.IRoutes, method, path string, preHandl
 // @Description 获取所有的任务列表
 // @Produce json
 // @Param req query GetTasksReq true "req"
-// @Success 200 {object} []models.Task
+// @Success 200 {object} []*TaskWithAssignmentsResp
 // @Router api/v1/tasks [get]
 func (a *ExecutorAPIWrap) List(ctx *gin.Context) {
 	var req ListExecutorReq
@@ -258,66 +258,50 @@ func (a *ExecutorAPIWrap) List(ctx *gin.Context) {
 		return
 	}
 	result, err := a.inner.List(ctx, req)
-	onGinResponse[[]*models.Executor](ctx, result, err)
+	onGinResponse[[]*ExecutorResp](ctx, result, err)
 }
 
 // Get
 // @Summary 获取任务详情
 // @Description 获取指定id的任务详情
 // @Produce json
-// @Param id path string true "id"
-// @Success 200 {object} models.Task
+// @Param id path integer true "id"
+// @Success 200 {object} *TaskWithAssignmentsResp
 // @Router api/v1/tasks/{id} [get]
 func (a *ExecutorAPIWrap) Get(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	result, err := a.inner.Get(ctx, id)
-	onGinResponse[*models.Executor](ctx, result, err)
-}
-
-// Register
-// @Summary 注册执行器
-// @Description 注册一个新执行器
-// @Produce json
-// @Param req body RegisterExecutorReq true "req"
-// @Success 200 {object} *models.Executor
-// @Router api/v1/executors/register [post]
-func (a *ExecutorAPIWrap) Register(ctx *gin.Context) {
-	var req RegisterExecutorReq
-	if !onGinBind(ctx, &req, "JSON") {
-		return
-	}
-	result, err := a.inner.Register(ctx, req)
-	onGinResponse[*models.Executor](ctx, result, err)
+	onGinResponse[*ExecutorResp](ctx, result, err)
 }
 
 // Update
 // @Summary 更新执行器
 // @Description 更新指定id的执行器
 // @Produce json
-// @Param id path string true "id"
+// @Param id path integer true "id"
 // @Param req body UpdateExecutorReq true "req"
-// @Success 200 {object} models.Executor
+// @Success 200 {object} *ExecutorResp
 // @Router api/v1/executors/{id} [put]
 func (a *ExecutorAPIWrap) Update(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	var req UpdateExecutorReq
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
 	result, err := a.inner.Update(ctx, id, req)
-	onGinResponse[models.Executor](ctx, result, err)
+	onGinResponse[*ExecutorResp](ctx, result, err)
 }
 
 // UpdateStatus
 // @Summary 更新执行器状态
 // @Description 更新指定id的执行器状态
 // @Produce json
-// @Param id path string true "id"
+// @Param id path integer true "id"
 // @Param req body UpdateExecutorStatusReq true "req"
 // @Success 200 {object} string
 // @Router api/v1/executors/{id}/status [put]
 func (a *ExecutorAPIWrap) UpdateStatus(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	var req UpdateExecutorStatusReq
 	if !onGinBind(ctx, &req, "JSON") {
 		return
@@ -330,13 +314,29 @@ func (a *ExecutorAPIWrap) UpdateStatus(ctx *gin.Context) {
 // @Summary 删除任务
 // @Description 删除指定id的任务
 // @Produce json
-// @Param id path string true "id"
+// @Param id path integer true "id"
 // @Success 200 {object} string
 // @Router api/v1/tasks/{id} [delete]
 func (a *ExecutorAPIWrap) Delete(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	result, err := a.inner.Delete(ctx, id)
 	onGinResponse[string](ctx, result, err)
+}
+
+// Register
+// @Summary 注册执行器
+// @Description 注册一个新执行器
+// @Produce json
+// @Param req body RegisterExecutorReq true "req"
+// @Success 200 {object} *ExecutorResp
+// @Router api/v1/executors/register [post]
+func (a *ExecutorAPIWrap) Register(ctx *gin.Context) {
+	var req RegisterExecutorReq
+	if !onGinBind(ctx, &req, "JSON") {
+		return
+	}
+	result, err := a.inner.Register(ctx, req)
+	onGinResponse[*ExecutorResp](ctx, result, err)
 }
 
 func (a *ExecutorAPIWrap) BindList(router gin.IRoutes, preHandlers ...gin.HandlerFunc) {
@@ -345,10 +345,6 @@ func (a *ExecutorAPIWrap) BindList(router gin.IRoutes, preHandlers ...gin.Handle
 
 func (a *ExecutorAPIWrap) BindGet(router gin.IRoutes, preHandlers ...gin.HandlerFunc) {
 	a.bind(router, "GET", "api/v1/executors/:id", preHandlers, nil, a.Get)
-}
-
-func (a *ExecutorAPIWrap) BindRegister(router gin.IRoutes, preHandlers ...gin.HandlerFunc) {
-	a.bind(router, "POST", "api/v1/executors/register", preHandlers, nil, a.Register)
 }
 
 func (a *ExecutorAPIWrap) BindUpdate(router gin.IRoutes, preHandlers ...gin.HandlerFunc) {
@@ -363,13 +359,17 @@ func (a *ExecutorAPIWrap) BindDelete(router gin.IRoutes, preHandlers ...gin.Hand
 	a.bind(router, "DELETE", "api/v1/executors/:id", preHandlers, nil, a.Delete)
 }
 
+func (a *ExecutorAPIWrap) BindRegister(router gin.IRoutes, preHandlers ...gin.HandlerFunc) {
+	a.bind(router, "POST", "api/v1/executors/register", preHandlers, nil, a.Register)
+}
+
 func (a *ExecutorAPIWrap) BindAll(router gin.IRoutes, preHandlers ...gin.HandlerFunc) {
 	a.BindList(router, preHandlers...)
 	a.BindGet(router, preHandlers...)
-	a.BindRegister(router, preHandlers...)
 	a.BindUpdate(router, preHandlers...)
 	a.BindUpdateStatus(router, preHandlers...)
 	a.BindDelete(router, preHandlers...)
+	a.BindRegister(router, preHandlers...)
 }
 
 type TaskAPIWrap struct {
@@ -395,7 +395,7 @@ func (a *TaskAPIWrap) bind(router gin.IRoutes, method, path string, preHandlers,
 // @Description 获取所有的任务列表
 // @Produce json
 // @Param req query GetTasksReq true "req"
-// @Success 200 {object} []models.Task
+// @Success 200 {object} []*TaskWithAssignmentsResp
 // @Router api/v1/tasks [get]
 func (a *TaskAPIWrap) List(ctx *gin.Context) {
 	var req GetTasksReq
@@ -403,20 +403,20 @@ func (a *TaskAPIWrap) List(ctx *gin.Context) {
 		return
 	}
 	result, err := a.inner.List(ctx, req)
-	onGinResponse[[]models.Task](ctx, result, err)
+	onGinResponse[[]*TaskWithAssignmentsResp](ctx, result, err)
 }
 
 // Get
 // @Summary 获取任务详情
 // @Description 获取指定id的任务详情
 // @Produce json
-// @Param id path string true "id"
-// @Success 200 {object} models.Task
+// @Param id path integer true "id"
+// @Success 200 {object} *TaskWithAssignmentsResp
 // @Router api/v1/tasks/{id} [get]
 func (a *TaskAPIWrap) Get(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	result, err := a.inner.Get(ctx, id)
-	onGinResponse[models.Task](ctx, result, err)
+	onGinResponse[*TaskWithAssignmentsResp](ctx, result, err)
 }
 
 // Create
@@ -424,7 +424,7 @@ func (a *TaskAPIWrap) Get(ctx *gin.Context) {
 // @Description 创建一个新任务
 // @Produce json
 // @Param req body CreateTaskReq true "req"
-// @Success 200 {object} models.Task
+// @Success 200 {object} *TaskResp
 // @Router api/v1/tasks [post]
 func (a *TaskAPIWrap) Create(ctx *gin.Context) {
 	var req CreateTaskReq
@@ -432,18 +432,18 @@ func (a *TaskAPIWrap) Create(ctx *gin.Context) {
 		return
 	}
 	result, err := a.inner.Create(ctx, req)
-	onGinResponse[models.Task](ctx, result, err)
+	onGinResponse[*TaskResp](ctx, result, err)
 }
 
 // Delete
 // @Summary 删除任务
 // @Description 删除指定id的任务
 // @Produce json
-// @Param id path string true "id"
+// @Param id path integer true "id"
 // @Success 200 {object} string
 // @Router api/v1/tasks/{id} [delete]
 func (a *TaskAPIWrap) Delete(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	result, err := a.inner.Delete(ctx, id)
 	onGinResponse[string](ctx, result, err)
 }
@@ -452,47 +452,47 @@ func (a *TaskAPIWrap) Delete(ctx *gin.Context) {
 // @Summary 更新任务
 // @Description 更新指定id的任务
 // @Produce json
-// @Param id path string true "id"
+// @Param id path integer true "id"
 // @Param req body UpdateTaskReq true "req"
-// @Success 200 {object} models.Task
+// @Success 200 {object} *TaskResp
 // @Router api/v1/tasks/{id} [put]
 func (a *TaskAPIWrap) UpdateTask(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	var req UpdateTaskReq
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
 	result, err := a.inner.UpdateTask(ctx, id, req)
-	onGinResponse[models.Task](ctx, result, err)
+	onGinResponse[*TaskResp](ctx, result, err)
 }
 
 // TriggerTask
 // @Summary 手动触发任务
 // @Description 手动触发指定id的任务
 // @Produce json
-// @Param id path string true "id"
+// @Param id path integer true "id"
 // @Param req body TriggerTaskRequest true "req"
-// @Success 200 {object} models.TaskExecution
+// @Success 200 {object} *TaskExecutionResp
 // @Router api/v1/tasks/{id}/trigger [post]
 func (a *TaskAPIWrap) TriggerTask(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	var req TriggerTaskRequest
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
 	result, err := a.inner.TriggerTask(ctx, id, req)
-	onGinResponse[models.TaskExecution](ctx, result, err)
+	onGinResponse[*TaskExecutionResp](ctx, result, err)
 }
 
 // Pause
 // @Summary 暂停任务
 // @Description 暂停指定id的任务
 // @Produce json
-// @Param id path string true "id"
+// @Param id path integer true "id"
 // @Success 200 {object} string
 // @Router api/v1/tasks/{id}/pause [post]
 func (a *TaskAPIWrap) Pause(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	result, err := a.inner.Pause(ctx, id)
 	onGinResponse[string](ctx, result, err)
 }
@@ -501,11 +501,11 @@ func (a *TaskAPIWrap) Pause(ctx *gin.Context) {
 // @Summary 恢复任务
 // @Description 恢复指定id的任务
 // @Produce json
-// @Param id path string true "id"
+// @Param id path integer true "id"
 // @Success 200 {object} string
 // @Router api/v1/tasks/{id}/resume [post]
 func (a *TaskAPIWrap) Resume(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	result, err := a.inner.Resume(ctx, id)
 	onGinResponse[string](ctx, result, err)
 }
@@ -514,64 +514,64 @@ func (a *TaskAPIWrap) Resume(ctx *gin.Context) {
 // @Summary 获取任务的执行器列表
 // @Description 获取指定id的任务的执行器列表
 // @Produce json
-// @Param id path string true "id"
-// @Success 200 {object} []models.TaskExecutor
+// @Param id path integer true "id"
+// @Success 200 {object} []*TaskAssignmentResp
 // @Router api/v1/tasks/{id}/executors [get]
 func (a *TaskAPIWrap) GetTaskExecutors(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	result, err := a.inner.GetTaskExecutors(ctx, id)
-	onGinResponse[[]models.TaskExecutor](ctx, result, err)
+	onGinResponse[[]*TaskAssignmentResp](ctx, result, err)
 }
 
 // AssignExecutor
 // @Summary 为任务分配执行器
 // @Description 为指定id的任务分配执行器
 // @Produce json
-// @Param id path string true "id"
+// @Param id path integer true "id"
 // @Param req body AssignExecutorReq true "req"
-// @Success 200 {object} models.TaskExecutor
+// @Success 200 {object} *TaskAssignmentResp
 // @Router api/v1/tasks/{id}/executors [post]
 func (a *TaskAPIWrap) AssignExecutor(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	var req AssignExecutorReq
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
 	result, err := a.inner.AssignExecutor(ctx, id, req)
-	onGinResponse[models.TaskExecutor](ctx, result, err)
+	onGinResponse[*TaskAssignmentResp](ctx, result, err)
 }
 
 // UpdateExecutorAssignment
 // @Summary 更新任务执行器分配
 // @Description 更新指定id的任务执行器分配
 // @Produce json
-// @Param id path string true "id"
-// @Param executor_id path string true "executorID"
+// @Param id path integer true "id"
+// @Param executor_id path integer true "executorID"
 // @Param req body UpdateExecutorAssignmentReq true "req"
-// @Success 200 {object} models.TaskExecutor
+// @Success 200 {object} *TaskAssignmentResp
 // @Router api/v1/tasks/{id}/executors/{executor_id} [put]
 func (a *TaskAPIWrap) UpdateExecutorAssignment(ctx *gin.Context) {
-	id := ctx.Param("id")
-	executorID := ctx.Param("executor_id")
+	id := cast.ToUint64(ctx.Param("id"))
+	executorID := cast.ToUint64(ctx.Param("executor_id"))
 	var req UpdateExecutorAssignmentReq
 	if !onGinBind(ctx, &req, "JSON") {
 		return
 	}
 	result, err := a.inner.UpdateExecutorAssignment(ctx, id, executorID, req)
-	onGinResponse[models.TaskExecutor](ctx, result, err)
+	onGinResponse[*TaskAssignmentResp](ctx, result, err)
 }
 
 // UnassignExecutor
 // @Summary 取消任务执行器分配
 // @Description 取消指定id的任务执行器分配
 // @Produce json
-// @Param id path string true "id"
-// @Param executor_id path string true "executorID"
+// @Param id path integer true "id"
+// @Param executor_id path integer true "executorID"
 // @Success 200 {object} string
 // @Router api/v1/tasks/{id}/executors/{executor_id} [delete]
 func (a *TaskAPIWrap) UnassignExecutor(ctx *gin.Context) {
-	id := ctx.Param("id")
-	executorID := ctx.Param("executor_id")
+	id := cast.ToUint64(ctx.Param("id"))
+	executorID := cast.ToUint64(ctx.Param("executor_id"))
 	result, err := a.inner.UnassignExecutor(ctx, id, executorID)
 	onGinResponse[string](ctx, result, err)
 }
@@ -580,11 +580,11 @@ func (a *TaskAPIWrap) UnassignExecutor(ctx *gin.Context) {
 // @Summary 获取任务统计
 // @Description 获取指定id的任务统计
 // @Produce json
-// @Param id path string true "id"
+// @Param id path integer true "id"
 // @Success 200 {object} TaskStatsResp
 // @Router api/v1/tasks/{id}/stats [get]
 func (a *TaskAPIWrap) GetTaskStats(ctx *gin.Context) {
-	id := ctx.Param("id")
+	id := cast.ToUint64(ctx.Param("id"))
 	result, err := a.inner.GetTaskStats(ctx, id)
 	onGinResponse[TaskStatsResp](ctx, result, err)
 }

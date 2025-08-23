@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
 	"gorm.io/gorm"
@@ -22,7 +23,7 @@ func NewRoundRobinStrategy(storage *orm.Storage) *RoundRobinStrategy {
 	}
 }
 
-func (s *RoundRobinStrategy) Select(ctx context.Context, taskID string, executors []*models.Executor) (*models.Executor, error) {
+func (s *RoundRobinStrategy) Select(ctx context.Context, taskID uint64, executors []*executor.Executor) (*executor.Executor, error) {
 	if len(executors) == 0 {
 		return nil, fmt.Errorf("no available executors")
 	}

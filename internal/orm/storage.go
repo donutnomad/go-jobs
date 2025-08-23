@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/google/wire"
+	"github.com/jobs/scheduler/internal/infra/persistence/executionrepo"
+	"github.com/jobs/scheduler/internal/infra/persistence/taskrepo"
 	"github.com/jobs/scheduler/internal/models"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -51,12 +53,12 @@ func New(cfg Config) (*Storage, error) {
 
 	// 自动迁移 - 调整顺序确保被引用的表先创建
 	if err := db.AutoMigrate(
-		&models.Task{},              // 先创建tasks表
-		&models.Executor{},          // 再创建executors表
-		&models.TaskExecutor{},      // 然后创建task_executors表(引用了tasks和executors)
-		&models.TaskExecution{},     // 再创建task_executions表(引用了tasks和executors)
-		&models.LoadBalanceState{},  // 负载均衡状态表
-		&models.SchedulerInstance{}, // 调度器实例表
+		&taskrepo.TaskPo{},             // 先创建tasks表
+		&models.Executor{},             // 再创建executors表
+		&taskrepo.TaskAssignmentPo{},   // 然后创建task_executors表(引用了tasks和executors)
+		&executionrepo.TaskExecution{}, // 再创建task_executions表(引用了tasks和executors)
+		&models.LoadBalanceState{},     // 负载均衡状态表
+		&models.SchedulerInstance{},    // 调度器实例表
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}

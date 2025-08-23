@@ -3,32 +3,126 @@ package api
 import (
 	"time"
 
+	"github.com/jobs/scheduler/internal/biz/execution"
+	"github.com/jobs/scheduler/internal/biz/executor"
+	"github.com/jobs/scheduler/internal/biz/task"
 	"github.com/jobs/scheduler/internal/models"
+	"github.com/samber/lo"
 )
 
 type CreateTaskReq struct {
-	Name                string                     `json:"name" binding:"required"`
-	CronExpression      string                     `json:"cron_expression" binding:"required"`
-	Parameters          models.JSONMap             `json:"parameters"`
-	ExecutionMode       models.ExecutionMode       `json:"execution_mode"`
-	LoadBalanceStrategy models.LoadBalanceStrategy `json:"load_balance_strategy"`
-	MaxRetry            int                        `json:"max_retry"`
-	TimeoutSeconds      int                        `json:"timeout_seconds"`
+	Name                string                   `json:"name" binding:"required"`
+	CronExpression      string                   `json:"cron_expression" binding:"required"`
+	Parameters          map[string]any           `json:"parameters"`
+	ExecutionMode       task.ExecutionMode       `json:"execution_mode"`
+	LoadBalanceStrategy task.LoadBalanceStrategy `json:"load_balance_strategy"`
+	MaxRetry            int                      `json:"max_retry"`
+	TimeoutSeconds      int                      `json:"timeout_seconds"`
+}
+
+func (r *CreateTaskReq) GetExecutionMode() task.ExecutionMode {
+	if r.ExecutionMode == "" {
+		return task.ExecutionModeParallel
+	}
+	return r.ExecutionMode
+}
+
+func (r *CreateTaskReq) GetLoadBalanceStrategy() task.LoadBalanceStrategy {
+	if r.LoadBalanceStrategy == "" {
+		return task.LoadBalanceRoundRobin
+	}
+	return r.LoadBalanceStrategy
+}
+
+func (r *CreateTaskReq) GetMaxRetry() int {
+	if r.MaxRetry == 0 {
+		return 3
+	}
+	return r.MaxRetry
+}
+
+func (r *CreateTaskReq) GetTimeoutSeconds() int {
+	if r.TimeoutSeconds == 0 {
+		return 300
+	}
+	return r.TimeoutSeconds
+}
+
+type TaskResp struct {
+	ID                  uint64                   `json:"id"`
+	CreatedAt           time.Time                `json:"created_at"`
+	UpdatedAt           time.Time                `json:"updated_at"`
+	Name                string                   `json:"name"`
+	CronExpression      string                   `json:"cron_expression"`
+	Parameters          map[string]any           `json:"parameters"`
+	ExecutionMode       task.ExecutionMode       `json:"execution_mode"`
+	LoadBalanceStrategy task.LoadBalanceStrategy `json:"load_balance_strategy"`
+	Status              task.TaskStatus          `json:"status"`
+	MaxRetry            int                      `json:"max_retry"`
+	TimeoutSeconds      int                      `json:"timeout_seconds"`
+}
+
+type TaskWithAssignmentsResp struct {
+	*TaskResp
+	Assignments []TaskAssignmentResp `json:"task_executors"`
+}
+
+func (t *TaskWithAssignmentsResp) FromDomain(in *task.Task) *TaskWithAssignmentsResp {
+	return &TaskWithAssignmentsResp{
+		TaskResp: t.TaskResp.FromDomain(in),
+		Assignments: lo.Map(in.Assignments, func(assignment *task.TaskAssignment, _ int) TaskAssignmentResp {
+			return *new(TaskAssignmentResp).FromDomain(assignment)
+		}),
+	}
+}
+
+type TaskAssignmentResp struct {
+	ID           uint64 `json:"id"`
+	TaskID       uint64 `json:"task_id"`
+	ExecutorName string `json:"executor_name"`
+	Priority     int    `json:"priority"`
+	Weight       int    `json:"weight"`
+}
+
+func (t *TaskAssignmentResp) FromDomain(in *task.TaskAssignment) *TaskAssignmentResp {
+	return &TaskAssignmentResp{
+		ID:           in.ID,
+		TaskID:       in.TaskID,
+		ExecutorName: in.ExecutorName,
+		Priority:     in.Priority,
+		Weight:       in.Weight,
+	}
+}
+
+func (t *TaskResp) FromDomain(in *task.Task) *TaskResp {
+	return &TaskResp{
+		ID:                  in.ID,
+		Name:                in.Name,
+		CronExpression:      in.CronExpression,
+		Parameters:          in.Parameters,
+		ExecutionMode:       in.ExecutionMode,
+		LoadBalanceStrategy: in.LoadBalanceStrategy,
+		Status:              in.Status,
+		MaxRetry:            in.MaxRetry,
+		TimeoutSeconds:      in.TimeoutSeconds,
+		CreatedAt:           in.CreatedAt,
+		UpdatedAt:           in.UpdatedAt,
+	}
 }
 
 type UpdateTaskReq struct {
-	Name                string                     `json:"name"`
-	CronExpression      string                     `json:"cron_expression"`
-	Parameters          models.JSONMap             `json:"parameters"`
-	ExecutionMode       models.ExecutionMode       `json:"execution_mode"`
-	LoadBalanceStrategy models.LoadBalanceStrategy `json:"load_balance_strategy"`
-	MaxRetry            int                        `json:"max_retry"`
-	TimeoutSeconds      int                        `json:"timeout_seconds"`
-	Status              models.TaskStatus          `json:"status"`
+	Name                string                   `json:"name"`
+	CronExpression      string                   `json:"cron_expression"`
+	Parameters          map[string]any           `json:"parameters"`
+	ExecutionMode       task.ExecutionMode       `json:"execution_mode"`
+	LoadBalanceStrategy task.LoadBalanceStrategy `json:"load_balance_strategy"`
+	MaxRetry            int                      `json:"max_retry"`
+	TimeoutSeconds      int                      `json:"timeout_seconds"`
+	Status              task.TaskStatus          `json:"status"`
 }
 
 type AssignExecutorReq struct {
-	ExecutorID string `json:"executor_id" binding:"required"`
+	ExecutorID uint64 `json:"executor_id" binding:"required"`
 	Priority   int    `json:"priority"`
 	Weight     int    `json:"weight"`
 }
@@ -81,34 +175,76 @@ type RegisterExecutorReq struct {
 }
 
 type TaskDefinition struct {
-	Name                string                     `json:"name" binding:"required"`
-	ExecutionMode       models.ExecutionMode       `json:"execution_mode" binding:"required"`
-	CronExpression      string                     `json:"cron_expression" binding:"required"`
-	LoadBalanceStrategy models.LoadBalanceStrategy `json:"load_balance_strategy" binding:"required"`
-	MaxRetry            int                        `json:"max_retry"`
-	TimeoutSeconds      int                        `json:"timeout_seconds"`
-	Parameters          map[string]any             `json:"parameters"`
-	Status              models.TaskStatus          `json:"status"` // 初始状态，可以是 active 或 paused
+	Name                string                   `json:"name" binding:"required"`
+	ExecutionMode       task.ExecutionMode       `json:"execution_mode" binding:"required"`
+	CronExpression      string                   `json:"cron_expression" binding:"required"`
+	LoadBalanceStrategy task.LoadBalanceStrategy `json:"load_balance_strategy" binding:"required"`
+	MaxRetry            int                      `json:"max_retry"`
+	TimeoutSeconds      int                      `json:"timeout_seconds"`
+	Parameters          map[string]any           `json:"parameters"`
+	Status              task.TaskStatus          `json:"status"` // 初始状态，可以是 active 或 paused
+}
+
+func (d *TaskDefinition) GetMaxRetry() int {
+	if d.MaxRetry == 0 {
+		return 3
+	}
+	return d.MaxRetry
+}
+
+func (d *TaskDefinition) GetTimeoutSeconds() int {
+	if d.TimeoutSeconds == 0 {
+		return 300
+	}
+	return d.TimeoutSeconds
+}
+
+func (d *TaskDefinition) GetStatus() task.TaskStatus {
+	if d.Status == "" {
+		return task.TaskStatusPaused
+	}
+	return d.Status
+}
+
+func (d *TaskDefinition) GetParameters() map[string]any {
+	if d.Parameters == nil {
+		return make(map[string]any)
+	}
+	return d.Parameters
+}
+
+func (d *TaskDefinition) GetExecutionMode() task.ExecutionMode {
+	if d.ExecutionMode == "" {
+		return task.ExecutionModeParallel
+	}
+	return d.ExecutionMode
+}
+
+func (d *TaskDefinition) GetLoadBalanceStrategy() task.LoadBalanceStrategy {
+	if d.LoadBalanceStrategy == "" {
+		return task.LoadBalanceRoundRobin
+	}
+	return d.LoadBalanceStrategy
 }
 
 type UpdateExecutorStatusReq struct {
-	Status models.ExecutorStatus `json:"status" binding:"required"`
-	Reason string                `json:"reason"`
+	Status executor.ExecutorStatus `json:"status" binding:"required, oneof=online offline maintenance"`
+	Reason string                  `json:"reason"`
 }
 
 ///// execution API //////
 
 type ExecutionCallbackRequest struct {
-	ExecutionID string                 `json:"execution_id" binding:"required"`
-	Status      models.ExecutionStatus `json:"status" binding:"required"`
-	Result      map[string]any         `json:"result"`
-	Logs        string                 `json:"logs"`
+	ExecutionID string                    `json:"execution_id" binding:"required"`
+	Status      execution.ExecutionStatus `json:"status" binding:"required"`
+	Result      map[string]any            `json:"result"`
+	Logs        string                    `json:"logs"`
 }
 
 type ExecutionStatsReq struct {
-	StartTime string `form:"start_time"`
-	EndTime   string `form:"end_time"`
-	TaskID    string `form:"task_id"`
+	StartTime int64  `form:"start_time"`
+	EndTime   int64  `form:"end_time"`
+	TaskID    uint64 `form:"task_id"`
 }
 
 type ExecutionStatsResp struct {
@@ -120,20 +256,20 @@ type ExecutionStatsResp struct {
 }
 
 type ListExecutionReq struct {
-	Page      int    `form:"page"`
-	PageSize  int    `form:"page_size"`
-	TaskID    string `form:"task_id"`
-	Status    string `form:"status"`
-	StartTime string `form:"start_time"`
-	EndTime   string `form:"end_time"`
+	Page      int                       `form:"page"`
+	PageSize  int                       `form:"page_size"`
+	TaskID    uint64                    `form:"task_id"`
+	Status    execution.ExecutionStatus `form:"status"`
+	StartTime int64                     `form:"start_time"`
+	EndTime   int64                     `form:"end_time"`
 }
 
 type ListExecutionResp struct {
-	Data       []models.TaskExecution `json:"data"`
-	Total      int64                  `json:"total"`
-	Page       int                    `json:"page"`
-	PageSize   int                    `json:"page_size"`
-	TotalPages int                    `json:"total_pages"`
+	Data       []*TaskExecutionResp `json:"data"`
+	Total      int64                `json:"total"`
+	Page       int                  `json:"page"`
+	PageSize   int                  `json:"page_size"`
+	TotalPages int                  `json:"total_pages"`
 }
 
 ////// common ///////
@@ -141,4 +277,44 @@ type ListExecutionResp struct {
 type SchedulerStatsResp struct {
 	Instances []models.SchedulerInstance `json:"instances"`
 	Time      time.Time                  `json:"time"`
+}
+
+type TaskExecutionResp struct {
+	ID            uint64                    `json:"id"`
+	TaskID        uint64                    `json:"task_id"`
+	ExecutorID    uint64                    `json:"executor_id"`
+	ScheduledTime time.Time                 `json:"scheduled_time"`
+	StartTime     *time.Time                `json:"start_time"`
+	EndTime       *time.Time                `json:"end_time"`
+	Status        execution.ExecutionStatus `json:"status"`
+	Result        map[string]any            `json:"result"`
+	Logs          string                    `json:"logs"`
+	RetryCount    int                       `json:"retry_count"`
+	CreatedAt     time.Time                 `json:"created_at"`
+
+	// 在应用层手动填充的关联字段（不使用GORM关联）
+	Task     *TaskResp     `json:"task,omitempty"`
+	Executor *ExecutorResp `json:"executor,omitempty"`
+}
+
+func (t *TaskExecutionResp) FromDomain(in *execution.TaskExecution) *TaskExecutionResp {
+	return &TaskExecutionResp{
+		ID:            in.ID,
+		TaskID:        in.TaskID,
+		ExecutorID:    in.ExecutorID,
+		ScheduledTime: in.ScheduledTime,
+		StartTime:     in.StartTime,
+		EndTime:       in.EndTime,
+		Status:        in.Status,
+		Result:        in.Result,
+		Logs:          in.Logs,
+		RetryCount:    in.RetryCount,
+		CreatedAt:     in.CreatedAt,
+		Task:          nil,
+		Executor:      nil,
+	}
+}
+
+type GetTasksReq struct {
+	Status task.TaskStatus `form:"status" binding:"omitempty,oneof=active paused deleted"`
 }

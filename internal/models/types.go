@@ -23,14 +23,6 @@ const (
 	LoadBalanceLeastLoaded        LoadBalanceStrategy = "least_loaded"
 )
 
-type TaskStatus string
-
-const (
-	TaskStatusActive  TaskStatus = "active"
-	TaskStatusPaused  TaskStatus = "paused"
-	TaskStatusDeleted TaskStatus = "deleted"
-)
-
 type ExecutorStatus string
 
 const (
@@ -54,13 +46,12 @@ func (s ExecutorStatus) ToInt() int {
 type ExecutionStatus string
 
 const (
-	ExecutionStatusPending   ExecutionStatus = "pending"
-	ExecutionStatusRunning   ExecutionStatus = "running"
-	ExecutionStatusSuccess   ExecutionStatus = "success"
-	ExecutionStatusFailed    ExecutionStatus = "failed"
-	ExecutionStatusTimeout   ExecutionStatus = "timeout"
-	ExecutionStatusSkipped   ExecutionStatus = "skipped"
-	ExecutionStatusCancelled ExecutionStatus = "cancelled"
+	ExecutionStatusPending ExecutionStatus = "pending"
+	ExecutionStatusRunning ExecutionStatus = "running"
+	ExecutionStatusSuccess ExecutionStatus = "success"
+	ExecutionStatusFailed  ExecutionStatus = "failed"
+	ExecutionStatusTimeout ExecutionStatus = "timeout"
+	ExecutionStatusSkipped ExecutionStatus = "skipped"
 )
 
 type JSONMap map[string]any
