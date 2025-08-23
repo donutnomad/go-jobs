@@ -42,7 +42,8 @@ func (po *TaskPo) ToDomain() *domain.Task {
 func (po *TaskAssignmentPo) FromDomain(in *domain.TaskAssignment) *TaskAssignmentPo {
 	return &TaskAssignmentPo{
 		Mode: commonrepo.Mode{
-			ID: in.ID,
+			ID:        in.ID,
+			CreatedAt: in.CreatedAt,
 		},
 		TaskID:       in.TaskID,
 		ExecutorName: in.ExecutorName,
@@ -54,6 +55,7 @@ func (po *TaskAssignmentPo) FromDomain(in *domain.TaskAssignment) *TaskAssignmen
 func (po *TaskAssignmentPo) ToDomain() *domain.TaskAssignment {
 	return &domain.TaskAssignment{
 		ID:           po.ID,
+		CreatedAt:    po.CreatedAt,
 		TaskID:       po.TaskID,
 		ExecutorName: po.ExecutorName,
 		Priority:     po.Priority,

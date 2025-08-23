@@ -285,7 +285,7 @@ export default function TasksPage() {
                   <tr key={task.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div className="text-sm font-medium text-gray-900">{task.name}</div>
-                      <div className="text-sm text-gray-500">ID: {task.id.slice(0, 8)}...</div>
+                      <div className="text-sm text-gray-500">ID: {task.id}</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center space-x-1 text-sm text-gray-900">

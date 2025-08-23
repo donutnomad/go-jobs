@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/wire"
 	"github.com/jobs/scheduler/internal/infra/persistence/executionrepo"
+	"github.com/jobs/scheduler/internal/infra/persistence/executorrepo"
 	"github.com/jobs/scheduler/internal/infra/persistence/loadbalancerepo"
 	"github.com/jobs/scheduler/internal/infra/persistence/schedulerinstancerepo"
 	"github.com/jobs/scheduler/internal/infra/persistence/taskrepo"
@@ -59,6 +60,7 @@ func New(cfg Config) (*Storage, error) {
 		&executionrepo.TaskExecution{},               // 再创建task_executions表(引用了tasks和executors)
 		&loadbalancerepo.LoadBalanceStatePO{},        // 负载均衡状态表
 		&schedulerinstancerepo.SchedulerInstancePO{}, // 调度器实例表
+		&executorrepo.Executor{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}

@@ -2,11 +2,13 @@ package executionrepo
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	domain "github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/infra/persistence/commonrepo"
 	"github.com/yitter/idgenerator-go/idgen"
+	"gorm.io/gorm"
 )
 
 type MysqlRepositoryImpl struct {
@@ -46,6 +48,9 @@ func (r *MysqlRepositoryImpl) Count(ctx context.Context, query domain.CountQuery
 func (r *MysqlRepositoryImpl) GetByID(ctx context.Context, id uint64) (*domain.TaskExecution, error) {
 	var po = new(TaskExecution)
 	if err := r.Db(ctx).First(po, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return po.ToDomain(), nil

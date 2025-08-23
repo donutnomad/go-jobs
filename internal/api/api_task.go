@@ -1,14 +1,15 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jobs/scheduler/internal/biz/execution"
+	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/task"
-	"github.com/jobs/scheduler/internal/infra/persistence/executionrepo"
 	"github.com/samber/lo"
 	"github.com/samber/mo"
 	"github.com/yitter/idgenerator-go/idgen"
@@ -89,14 +90,17 @@ type TaskAPI struct {
 	usecase       *task.Usecase
 	repo          task.Repo
 	executionRepo execution.Repo
+	executorRepo  executor.Repo
 }
 
-func NewTaskAPI(db *gorm.DB, emitter IEmitter, usecase *task.Usecase, repo task.Repo) ITaskAPI {
+func NewTaskAPI(db *gorm.DB, emitter IEmitter, usecase *task.Usecase, repo task.Repo, executionRepo execution.Repo, executorRepo executor.Repo) ITaskAPI {
 	return &TaskAPI{
-		db:      db,
-		emitter: emitter,
-		usecase: usecase,
-		repo:    repo,
+		db:            db,
+		emitter:       emitter,
+		usecase:       usecase,
+		repo:          repo,
+		executionRepo: executionRepo,
+		executorRepo:  executorRepo,
 	}
 }
 
@@ -119,7 +123,16 @@ func (t *TaskAPI) Get(ctx *gin.Context, id uint64) (*TaskWithAssignmentsResp, er
 	} else if task_ == nil {
 		return nil, errors.New("task not found")
 	}
-	return new(TaskWithAssignmentsResp).FromDomain(task_), nil
+	ret := new(TaskWithAssignmentsResp).FromDomain(task_)
+	for idx, item := range ret.Assignments {
+		name, err := t.executorRepo.GetByName(ctx, item.ExecutorName)
+		if err != nil {
+			return nil, err
+		}
+		item.Executor = new(ExecutorResp).FromDomain(name)
+		ret.Assignments[idx] = item
+	}
+	return ret, nil
 }
 
 func (t *TaskAPI) Create(ctx *gin.Context, req CreateTaskReq) (*TaskResp, error) {
@@ -240,13 +253,14 @@ func (t *TaskAPI) GetTaskExecutors(ctx *gin.Context, id uint64) ([]*TaskAssignme
 }
 
 func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id uint64, req AssignExecutorReq) (*TaskAssignmentResp, error) {
-	executor_, err := t.repo.GetByID(ctx, req.ExecutorID)
+	executor_, err := t.executorRepo.GetByID(ctx, req.GetExecutorID())
 	if err != nil {
 		return nil, err
 	} else if executor_ == nil {
 		return nil, errors.New("executor not found")
 	}
 
+	// executor.is_healthy
 	newAssignment, err := t.usecase.AssignExecutor(ctx, id, executor_.Name, req.Priority, req.Weight)
 	if err != nil {
 		return nil, err
@@ -293,19 +307,18 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID uint64) (TaskStatsResp, 
 
 	// 计算24小时前的时间
 	since24h := time.Now().Add(-24 * time.Hour)
+	now := time.Now()
 
 	// 获取24小时内的总执行次数
-	if err := t.db.Model(&executionrepo.TaskExecution{}).
-		Where("task_id = ? AND created_at >= ?", taskID, since24h).
-		Count(&totalCount24h).Error; err != nil {
+	var err error
+	totalCount24h, err = t.executionRepo.CountByTaskAndTimeRange(ctx, taskID, since24h, now)
+	if err != nil {
 		return TaskStatsResp{}, errors.Join(err, errors.New("failed to get 24h total count"))
 	}
 
 	// 获取24小时内的成功执行次数
-	if err := t.db.Model(&executionrepo.TaskExecution{}).
-		Where("task_id = ? AND status = ? AND created_at >= ?",
-			taskID, execution.ExecutionStatusSuccess, since24h).
-		Count(&successCount24h).Error; err != nil {
+	successCount24h, err = t.executionRepo.CountByTaskStatusAndTimeRange(ctx, taskID, execution.ExecutionStatusSuccess, since24h, now)
+	if err != nil {
 		return TaskStatsResp{}, errors.Join(err, errors.New("failed to get 24h success count"))
 	}
 
@@ -323,19 +336,17 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID uint64) (TaskStatsResp, 
 		startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
 		endOfDay := startOfDay.Add(24 * time.Hour)
 
-		var dayTotal, daySuccess int64
-
 		// 总数
-		t.db.Model(&executionrepo.TaskExecution{}).
-			Where("task_id = ? AND created_at >= ? AND created_at < ?",
-				taskID, startOfDay, endOfDay).
-			Count(&dayTotal)
+		dayTotal, err := t.executionRepo.CountByTaskAndTimeRange(ctx, taskID, startOfDay, endOfDay)
+		if err != nil {
+			dayTotal = 0
+		}
 
 		// 成功数
-		t.db.Model(&executionrepo.TaskExecution{}).
-			Where("task_id = ? AND status = ? AND created_at >= ? AND created_at < ?",
-				taskID, execution.ExecutionStatusSuccess, startOfDay, endOfDay).
-			Count(&daySuccess)
+		daySuccess, err := t.executionRepo.CountByTaskStatusAndTimeRange(ctx, taskID, execution.ExecutionStatusSuccess, startOfDay, endOfDay)
+		if err != nil {
+			daySuccess = 0
+		}
 
 		successRate := float64(100) // 默认100%（无执行时）
 		if dayTotal > 0 {
@@ -358,26 +369,25 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID uint64) (TaskStatsResp, 
 		startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
 		endOfDay := startOfDay.Add(24 * time.Hour)
 
-		var dayTotal, daySuccess, dayFailed int64
-
 		// 总数
-		t.db.Model(&executionrepo.TaskExecution{}).
-			Where("task_id = ? AND created_at >= ? AND created_at < ?",
-				taskID, startOfDay, endOfDay).
-			Count(&dayTotal)
+		dayTotal, err := t.executionRepo.CountByTaskAndTimeRange(ctx, taskID, startOfDay, endOfDay)
+		if err != nil {
+			dayTotal = 0
+		}
 
 		// 成功数
-		t.db.Model(&executionrepo.TaskExecution{}).
-			Where("task_id = ? AND status = ? AND created_at >= ? AND created_at < ?",
-				taskID, execution.ExecutionStatusSuccess, startOfDay, endOfDay).
-			Count(&daySuccess)
+		daySuccess, err := t.executionRepo.CountByTaskStatusAndTimeRange(ctx, taskID, execution.ExecutionStatusSuccess, startOfDay, endOfDay)
+		if err != nil {
+			daySuccess = 0
+		}
 
 		// 失败数
-		t.db.Model(&executionrepo.TaskExecution{}).
-			Where("task_id = ? AND status IN ? AND created_at >= ? AND created_at < ?",
-				taskID, []string{string(execution.ExecutionStatusFailed), string(execution.ExecutionStatusTimeout)},
-				startOfDay, endOfDay).
-			Count(&dayFailed)
+		dayFailed, err := t.executionRepo.CountByTaskStatusesAndTimeRange(ctx, taskID,
+			[]execution.ExecutionStatus{execution.ExecutionStatusFailed, execution.ExecutionStatusTimeout},
+			startOfDay, endOfDay)
+		if err != nil {
+			dayFailed = 0
+		}
 
 		successRate := float64(0)
 		if dayTotal > 0 {
@@ -406,31 +416,34 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID uint64) (TaskStatsResp, 
 // calculateHealthStats 计算健康度统计
 func (t *TaskAPI) calculateHealthStats(taskID uint64, days int) HealthStatus {
 	since := time.Now().AddDate(0, 0, -days)
-
-	var totalCount, successCount, failedCount, timeoutCount int64
+	now := time.Now()
+	ctx := context.Background()
 
 	// 总执行次数
-	t.db.Model(&executionrepo.TaskExecution{}).
-		Where("task_id = ? AND created_at >= ?", taskID, since).
-		Count(&totalCount)
+	totalCount, err := t.executionRepo.CountByTaskAndTimeRange(ctx, taskID, since, now)
+	if err != nil {
+		totalCount = 0
+	}
 
-	// 成功次数
-	t.db.Model(&executionrepo.TaskExecution{}).
-		Where("task_id = ? AND status = ? AND created_at >= ?",
-			taskID, execution.ExecutionStatusSuccess, since).
-		Count(&successCount)
+	// 定义要统计的状态及其对应的计数变量
+	statusCounts := map[execution.ExecutionStatus]*int64{
+		execution.ExecutionStatusSuccess: new(int64),
+		execution.ExecutionStatusFailed:  new(int64),
+		execution.ExecutionStatusTimeout: new(int64),
+	}
 
-	// 失败次数
-	t.db.Model(&executionrepo.TaskExecution{}).
-		Where("task_id = ? AND status = ? AND created_at >= ?",
-			taskID, execution.ExecutionStatusFailed, since).
-		Count(&failedCount)
+	// 批量统计各状态的执行次数
+	for status, countPtr := range statusCounts {
+		count, err := t.executionRepo.CountByTaskStatusAndTimeRange(ctx, taskID, status, since, now)
+		if err != nil {
+			count = 0
+		}
+		*countPtr = count
+	}
 
-	// 超时次数
-	t.db.Model(&executionrepo.TaskExecution{}).
-		Where("task_id = ? AND status = ? AND created_at >= ?",
-			taskID, execution.ExecutionStatusTimeout, since).
-		Count(&timeoutCount)
+	successCount := *statusCounts[execution.ExecutionStatusSuccess]
+	failedCount := *statusCounts[execution.ExecutionStatusFailed]
+	timeoutCount := *statusCounts[execution.ExecutionStatusTimeout]
 
 	// 计算健康度分数 (0-100)
 	healthScore := float64(100)
@@ -445,12 +458,10 @@ func (t *TaskAPI) calculateHealthStats(taskID uint64, days int) HealthStatus {
 	}
 
 	// 计算平均执行时间
-	var avgDuration float64
-	t.db.Model(&executionrepo.TaskExecution{}).
-		Where("task_id = ? AND created_at >= ? AND start_time IS NOT NULL AND end_time IS NOT NULL",
-			taskID, since).
-		Select("AVG(TIMESTAMPDIFF(SECOND, start_time, end_time))").
-		Scan(&avgDuration)
+	avgDuration, err := t.executionRepo.GetAvgDuration(ctx, taskID, since)
+	if err != nil {
+		avgDuration = 0
+	}
 
 	return HealthStatus{
 		HealthScore:        healthScore,

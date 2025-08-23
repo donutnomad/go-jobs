@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jobs/scheduler/internal/biz/executor"
+	"github.com/jobs/scheduler/internal/infra/persistence/executorrepo"
 	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/pkg/config"
 	"go.uber.org/zap"
@@ -174,7 +175,7 @@ func (h *HealthChecker) checkExecutor(exe *executor.Executor) {
 	}
 
 	// 保存更新
-	if err := h.storage.DB().Save(exe).Error; err != nil {
+	if err := executorrepo.NewMysqlRepositoryImpl(h.storage.DB()).Save(ctx, exe); err != nil {
 		h.logger.Error("failed to update executor health status",
 			zap.Uint64("executor_id", exe.ID),
 			zap.Error(err))

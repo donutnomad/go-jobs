@@ -13,7 +13,6 @@ func (po *Executor) FromDomain(in *domain.Executor) *Executor {
 			UpdatedAt: in.UpdatedAt,
 		},
 		Name:                in.Name,
-		InstanceID:          in.InstanceID,
 		BaseURL:             in.BaseURL,
 		HealthCheckURL:      in.HealthCheckURL,
 		Status:              in.Status,
@@ -30,7 +29,6 @@ func (po *Executor) ToDomain() *domain.Executor {
 		CreatedAt:           po.CreatedAt,
 		UpdatedAt:           po.UpdatedAt,
 		Name:                po.Name,
-		InstanceID:          po.InstanceID,
 		BaseURL:             po.BaseURL,
 		HealthCheckURL:      po.HealthCheckURL,
 		Status:              po.Status,
@@ -49,10 +47,6 @@ func patchToMap(input *domain.ExecutorPatch) map[string]any {
 
 	if input.Name != nil {
 		values["name"] = *input.Name
-	}
-
-	if input.InstanceID != nil {
-		values["instance_id"] = *input.InstanceID
 	}
 
 	if input.BaseURL != nil {

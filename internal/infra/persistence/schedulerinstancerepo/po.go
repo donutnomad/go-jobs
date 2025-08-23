@@ -19,7 +19,7 @@ func (SchedulerInstancePO) TableName() string {
 
 func (po *SchedulerInstancePO) ToDomain() *domain.SchedulerInstance {
 	return &domain.SchedulerInstance{
-		ID:         po.InstanceID,
+		ID:         po.ID,
 		InstanceID: po.InstanceID,
 		Host:       po.Host,
 		Port:       po.Port,
@@ -34,6 +34,7 @@ func (po *SchedulerInstancePO) FromDomain(d *domain.SchedulerInstance) *Schedule
 	po.Host = d.Host
 	po.Port = d.Port
 	po.IsLeader = d.IsLeader
+	po.ID = d.ID
 	if !d.CreatedAt.IsZero() {
 		po.CreatedAt = d.CreatedAt
 	}

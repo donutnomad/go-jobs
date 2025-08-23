@@ -11,7 +11,6 @@ import (
 type Executor struct {
 	commonrepo.Mode
 	Name                string                `gorm:"column:name;size:255;not null;index:idx_name_instance"`
-	InstanceID          string                `gorm:"column:instance_id;size:255;not null;uniqueIndex;index:idx_name_instance"`
 	BaseURL             string                `gorm:"column:base_url;size:500;not null"`
 	HealthCheckURL      string                `gorm:"column:health_check_url;size:500"`
 	Status              domain.ExecutorStatus `gorm:"column:status;size:50;not null;index:idx_status_healthy"`

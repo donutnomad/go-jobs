@@ -7,6 +7,7 @@ import (
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/task"
 	"github.com/samber/lo"
+	"github.com/spf13/cast"
 )
 
 type CreateTaskReq struct {
@@ -76,16 +77,19 @@ func (t *TaskWithAssignmentsResp) FromDomain(in *task.Task) *TaskWithAssignments
 }
 
 type TaskAssignmentResp struct {
-	ID           uint64 `json:"id"`
-	TaskID       uint64 `json:"task_id"`
-	ExecutorName string `json:"executor_name"`
-	Priority     int    `json:"priority"`
-	Weight       int    `json:"weight"`
+	ID           uint64        `json:"id"`
+	CreatedAt    time.Time     `json:"created_at"`
+	TaskID       uint64        `json:"task_id"`
+	ExecutorName string        `json:"executor_name"`
+	Priority     int           `json:"priority"`
+	Weight       int           `json:"weight"`
+	Executor     *ExecutorResp `json:"executor"`
 }
 
 func (t *TaskAssignmentResp) FromDomain(in *task.TaskAssignment) *TaskAssignmentResp {
 	return &TaskAssignmentResp{
 		ID:           in.ID,
+		CreatedAt:    in.CreatedAt,
 		TaskID:       in.TaskID,
 		ExecutorName: in.ExecutorName,
 		Priority:     in.Priority,
@@ -121,9 +125,13 @@ type UpdateTaskReq struct {
 }
 
 type AssignExecutorReq struct {
-	ExecutorID uint64 `json:"executor_id" binding:"required"`
+	ExecutorID string `json:"executor_id" binding:"required"`
 	Priority   int    `json:"priority"`
 	Weight     int    `json:"weight"`
+}
+
+func (r AssignExecutorReq) GetExecutorID() uint64 {
+	return cast.ToUint64(r.ExecutorID)
 }
 
 type UpdateExecutorAssignmentReq struct {
@@ -155,7 +163,6 @@ type TriggerTaskRequest struct {
 ////// executor API  //////
 
 type ListExecutorReq struct {
-	IncludeTasks bool `form:"include_tasks" json:"include_tasks"`
 }
 
 type UpdateExecutorReq struct {
@@ -241,9 +248,26 @@ type ExecutionCallbackRequest struct {
 }
 
 type ExecutionStatsReq struct {
-	StartTime int64  `form:"start_time"`
-	EndTime   int64  `form:"end_time"`
+	StartTime string `form:"start_time"`
+	EndTime   string `form:"end_time"`
 	TaskID    uint64 `form:"task_id"`
+}
+
+func (r ExecutionStatsReq) GetStartTime() int64 {
+	// 2025-08-22T16:00:00.000Z
+	startTime, err := time.Parse(time.RFC3339, r.StartTime)
+	if err != nil {
+		return 0
+	}
+	return startTime.Unix()
+}
+
+func (r ExecutionStatsReq) GetEndTime() int64 {
+	endTime, err := time.Parse(time.RFC3339, r.EndTime)
+	if err != nil {
+		return 0
+	}
+	return endTime.Unix()
 }
 
 type ExecutionStatsResp struct {
@@ -300,7 +324,7 @@ type SchedulerStatsResp struct {
 	Time      time.Time               `json:"time"`
 }
 type SchedulerInstanceResp struct {
-	ID         string    `json:"id"`
+	ID         uint64    `json:"id"`
 	InstanceID string    `json:"instance_id"`
 	Host       string    `json:"host"`
 	Port       int       `json:"port"`
@@ -371,7 +395,6 @@ func (t *ExecutorResp) FromDomain(in *executor.Executor) *ExecutorResp {
 		CreatedAt:           in.CreatedAt,
 		UpdatedAt:           in.UpdatedAt,
 		Name:                in.Name,
-		InstanceID:          in.InstanceID,
 		BaseURL:             in.BaseURL,
 		HealthCheckURL:      in.HealthCheckURL,
 		Status:              in.Status,

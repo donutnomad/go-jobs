@@ -154,8 +154,8 @@ func (e *ExecutionAPI) Stop(ctx *gin.Context, id uint64) (string, error) {
 
 func (e *ExecutionAPI) Stats(ctx *gin.Context, req ExecutionStatsReq) (*ExecutionStatsResp, error) {
 	countQuery := execution.CountQuery{
-		StartTime: mo.EmptyableToOption(req.StartTime),
-		EndTime:   mo.EmptyableToOption(req.EndTime),
+		StartTime: mo.EmptyableToOption(req.GetStartTime()),
+		EndTime:   mo.EmptyableToOption(req.GetEndTime()),
 		TaskID:    mo.EmptyableToOption(req.TaskID),
 	}
 

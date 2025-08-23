@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/load_balance"
@@ -17,6 +16,7 @@ import (
 	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/pkg/config"
 	"github.com/robfig/cron/v3"
+	"github.com/yitter/idgenerator-go/idgen"
 	"go.uber.org/zap"
 )
 
@@ -160,7 +160,7 @@ func (s *Scheduler) GetTaskRunner() *TaskRunner {
 func (s *Scheduler) registerInstance() error {
 	ctx := context.Background()
 	instance := &scheduler_instance.SchedulerInstance{
-		ID:         uuid.New().String(),
+		ID:         uint64(idgen.NextId()),
 		InstanceID: s.instanceID,
 		Host:       "localhost", // TODO: 获取真实主机名
 		Port:       s.config.MaxWorkers,

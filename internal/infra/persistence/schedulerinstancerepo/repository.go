@@ -2,10 +2,12 @@ package schedulerinstancerepo
 
 import (
 	"context"
+	"errors"
 
 	domain "github.com/jobs/scheduler/internal/biz/scheduler_instance"
 	"github.com/jobs/scheduler/internal/infra/persistence/commonrepo"
 	"github.com/samber/lo"
+	"gorm.io/gorm"
 )
 
 type MysqlRepositoryImpl struct {
@@ -22,6 +24,9 @@ func (r *MysqlRepositoryImpl) GetByInstanceID(ctx context.Context, instanceID st
 	var po SchedulerInstancePO
 	err := r.Db(ctx).Where("instance_id = ?", instanceID).First(&po).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return po.ToDomain(), nil
@@ -33,8 +38,8 @@ func (r *MysqlRepositoryImpl) Create(ctx context.Context, instance *domain.Sched
 }
 
 func (r *MysqlRepositoryImpl) Save(ctx context.Context, instance *domain.SchedulerInstance) error {
-	po := new(SchedulerInstancePO).FromDomain(instance)
-	return r.Db(ctx).Save(po).Error
+	//po := new(SchedulerInstancePO).FromDomain(instance)
+	return r.Db(ctx).Model(&SchedulerInstancePO{}).Where("instance_id = ?", instance.InstanceID).Update("is_leader", instance.IsLeader).Error
 }
 
 func (r *MysqlRepositoryImpl) UpdateLeaderStatus(ctx context.Context, instanceID string, isLeader bool) error {

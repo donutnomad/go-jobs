@@ -64,7 +64,6 @@ func (e *Executor) SetToOnline() *ExecutorPatch {
 
 type ExecutorPatch struct {
 	Name                *string
-	InstanceID          *string
 	BaseURL             *string
 	HealthCheckURL      *string
 	Status              *ExecutorStatus
@@ -81,9 +80,6 @@ func NewExecutorPatch() *ExecutorPatch {
 func (e *ExecutorPatch) With(other *ExecutorPatch) *ExecutorPatch {
 	if other.Name != nil {
 		e.Name = other.Name
-	}
-	if other.InstanceID != nil {
-		e.InstanceID = other.InstanceID
 	}
 	if other.BaseURL != nil {
 		e.BaseURL = other.BaseURL
@@ -111,11 +107,6 @@ func (e *ExecutorPatch) With(other *ExecutorPatch) *ExecutorPatch {
 
 func (e *ExecutorPatch) WithName(name string) *ExecutorPatch {
 	e.Name = &name
-	return e
-}
-
-func (e *ExecutorPatch) WithInstanceID(instanceID string) *ExecutorPatch {
-	e.InstanceID = &instanceID
 	return e
 }
 

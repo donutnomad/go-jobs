@@ -43,6 +43,7 @@ func (t *Task) Resume() (*TaskPatch, error) {
 
 type TaskAssignment struct {
 	ID           uint64
+	CreatedAt    time.Time
 	TaskID       uint64
 	ExecutorName string
 	Priority     int

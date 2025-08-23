@@ -5,7 +5,7 @@ import (
 )
 
 type SchedulerInstance struct {
-	ID         string
+	ID         uint64
 	InstanceID string
 	Host       string
 	Port       int

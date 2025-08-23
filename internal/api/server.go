@@ -33,7 +33,7 @@ func NewServer(
 	taskUsecase := task.NewUsecase(taskRepo)
 
 	// 绑定路由（使用适配器保持兼容性）
-	NewTaskAPIWrap(NewTaskAPI(db, emitter, taskUsecase, taskRepo)).BindAll(g)
+	NewTaskAPIWrap(NewTaskAPI(db, emitter, taskUsecase, taskRepo, executionRepo, executorRepo)).BindAll(g)
 	NewExecutorAPIWrap(NewExecutorAPI(db, logger, executorRepo, taskRepo)).BindAll(g)
 	NewExecutionAPIWrap(NewExecutionAPI(db, logger, emitter, executionRepo, taskRepo, executorRepo)).BindAll(g)
 	NewCommonAPIWrap(NewCommonAPI(db)).BindAll(g)

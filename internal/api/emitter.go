@@ -2,7 +2,6 @@ package api
 
 import (
 	"github.com/jobs/scheduler/internal/scheduler"
-	"github.com/spf13/cast"
 )
 
 type IEmitter interface {

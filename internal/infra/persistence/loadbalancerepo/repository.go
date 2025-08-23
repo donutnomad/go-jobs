@@ -22,10 +22,10 @@ func NewMysqlRepositoryImpl(db commonrepo.DB) domain.Repo {
 func (r *MysqlRepositoryImpl) GetByTaskID(ctx context.Context, taskID uint64) (*domain.LoadBalanceState, error) {
 	var po LoadBalanceStatePO
 	err := r.Db(ctx).Where("task_id = ?", taskID).First(&po).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
-	}
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return po.ToDomain(), nil

@@ -12,6 +12,7 @@ import (
 	"github.com/jobs/scheduler/internal/biz/task"
 	"github.com/samber/lo"
 	"github.com/samber/mo"
+	"github.com/spf13/cast"
 	"github.com/yitter/idgenerator-go/idgen"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -174,7 +175,7 @@ func (e *ExecutorAPI) Register(ctx *gin.Context, req RegisterExecutorReq) (*Exec
 
 	err := e.executorRepo.Execute(ctx, func(ctx context.Context) error {
 		var err error
-		exec, err = e.executorRepo.GetByInstanceID(ctx, req.ExecutorID)
+		exec, err = e.executorRepo.GetByID(ctx, cast.ToUint64(req.ExecutorID))
 		if err != nil {
 			return err
 		}
@@ -205,7 +206,6 @@ func (e *ExecutorAPI) Register(ctx *gin.Context, req RegisterExecutorReq) (*Exec
 			exec = &executor.Executor{
 				ID:                  uint64(idgen.NextId()),
 				Name:                req.ExecutorName,
-				InstanceID:          req.ExecutorID,
 				BaseURL:             req.ExecutorURL,
 				HealthCheckURL:      req.HealthCheckURL,
 				CreatedAt:           time.Time{},
