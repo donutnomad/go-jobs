@@ -9,7 +9,6 @@ import (
 	"github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/biz/task"
 	"github.com/jobs/scheduler/internal/infra/persistence/executionrepo"
-	"github.com/jobs/scheduler/internal/models"
 	"github.com/samber/lo"
 	"github.com/samber/mo"
 	"github.com/yitter/idgenerator-go/idgen"
@@ -305,7 +304,7 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID uint64) (TaskStatsResp, 
 	// 获取24小时内的成功执行次数
 	if err := t.db.Model(&executionrepo.TaskExecution{}).
 		Where("task_id = ? AND status = ? AND created_at >= ?",
-			taskID, models.ExecutionStatusSuccess, since24h).
+			taskID, execution.ExecutionStatusSuccess, since24h).
 		Count(&successCount24h).Error; err != nil {
 		return TaskStatsResp{}, errors.Join(err, errors.New("failed to get 24h success count"))
 	}
@@ -335,7 +334,7 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID uint64) (TaskStatsResp, 
 		// 成功数
 		t.db.Model(&executionrepo.TaskExecution{}).
 			Where("task_id = ? AND status = ? AND created_at >= ? AND created_at < ?",
-				taskID, models.ExecutionStatusSuccess, startOfDay, endOfDay).
+				taskID, execution.ExecutionStatusSuccess, startOfDay, endOfDay).
 			Count(&daySuccess)
 
 		successRate := float64(100) // 默认100%（无执行时）
@@ -370,13 +369,13 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID uint64) (TaskStatsResp, 
 		// 成功数
 		t.db.Model(&executionrepo.TaskExecution{}).
 			Where("task_id = ? AND status = ? AND created_at >= ? AND created_at < ?",
-				taskID, models.ExecutionStatusSuccess, startOfDay, endOfDay).
+				taskID, execution.ExecutionStatusSuccess, startOfDay, endOfDay).
 			Count(&daySuccess)
 
 		// 失败数
 		t.db.Model(&executionrepo.TaskExecution{}).
 			Where("task_id = ? AND status IN ? AND created_at >= ? AND created_at < ?",
-				taskID, []string{string(models.ExecutionStatusFailed), string(models.ExecutionStatusTimeout)},
+				taskID, []string{string(execution.ExecutionStatusFailed), string(execution.ExecutionStatusTimeout)},
 				startOfDay, endOfDay).
 			Count(&dayFailed)
 
@@ -418,19 +417,19 @@ func (t *TaskAPI) calculateHealthStats(taskID uint64, days int) HealthStatus {
 	// 成功次数
 	t.db.Model(&executionrepo.TaskExecution{}).
 		Where("task_id = ? AND status = ? AND created_at >= ?",
-			taskID, models.ExecutionStatusSuccess, since).
+			taskID, execution.ExecutionStatusSuccess, since).
 		Count(&successCount)
 
 	// 失败次数
 	t.db.Model(&executionrepo.TaskExecution{}).
 		Where("task_id = ? AND status = ? AND created_at >= ?",
-			taskID, models.ExecutionStatusFailed, since).
+			taskID, execution.ExecutionStatusFailed, since).
 		Count(&failedCount)
 
 	// 超时次数
 	t.db.Model(&executionrepo.TaskExecution{}).
 		Where("task_id = ? AND status = ? AND created_at >= ?",
-			taskID, models.ExecutionStatusTimeout, since).
+			taskID, execution.ExecutionStatusTimeout, since).
 		Count(&timeoutCount)
 
 	// 计算健康度分数 (0-100)

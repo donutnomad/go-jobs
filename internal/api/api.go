@@ -4,7 +4,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jobs/scheduler/internal/models"
+	"github.com/jobs/scheduler/internal/biz/scheduler_instance"
+	"github.com/jobs/scheduler/internal/infra/persistence/schedulerinstancerepo"
+	"github.com/samber/lo"
 	"gorm.io/gorm"
 )
 
@@ -21,12 +23,14 @@ type ICommonAPI interface {
 }
 
 type CommonAPI struct {
-	db *gorm.DB
+	db                    *gorm.DB
+	schedulerInstanceRepo scheduler_instance.Repo
 }
 
 func NewCommonAPI(db *gorm.DB) ICommonAPI {
 	return &CommonAPI{
-		db: db,
+		db:                    db,
+		schedulerInstanceRepo: schedulerinstancerepo.NewMysqlRepositoryImpl(db),
 	}
 }
 
@@ -38,12 +42,22 @@ func (c *CommonAPI) HealthCheck(ctx *gin.Context) (gin.H, error) {
 }
 
 func (c *CommonAPI) SchedulerStats(ctx *gin.Context) (SchedulerStatsResp, error) {
-	var instances []models.SchedulerInstance
-	if err := c.db.WithContext(ctx).Find(&instances).Error; err != nil {
+	instances, err := c.schedulerInstanceRepo.List(ctx)
+	if err != nil {
 		return SchedulerStatsResp{}, err
 	}
 	return SchedulerStatsResp{
-		Instances: instances,
-		Time:      time.Now(),
+		Instances: lo.Map(instances, func(instance *scheduler_instance.SchedulerInstance, _ int) SchedulerInstanceResp {
+			return SchedulerInstanceResp{
+				ID:         instance.ID,
+				InstanceID: instance.InstanceID,
+				Host:       instance.Host,
+				Port:       instance.Port,
+				IsLeader:   instance.IsLeader,
+				CreatedAt:  instance.CreatedAt,
+				UpdatedAt:  instance.UpdatedAt,
+			}
+		}),
+		Time: time.Now(),
 	}, nil
 }

@@ -12,9 +12,7 @@ import (
 	"github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/task"
-	"github.com/jobs/scheduler/internal/infra/persistence/executionrepo"
 	"github.com/jobs/scheduler/internal/loadbalance"
-	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
@@ -80,10 +78,13 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 
 // TaskRunner 任务执行器
 type TaskRunner struct {
-	storage    *orm.Storage
-	lbManager  *loadbalance.Manager
-	logger     *zap.Logger
-	httpClient *http.Client
+	storage       *orm.Storage
+	lbManager     *loadbalance.Manager
+	logger        *zap.Logger
+	httpClient    *http.Client
+	taskRepo      task.Repo
+	executionRepo execution.Repo
+	executorRepo  executor.Repo
 
 	maxWorkers int
 	taskCh     chan *taskJob
@@ -92,7 +93,7 @@ type TaskRunner struct {
 
 	// 超时管理器，避免goroutine泄漏
 	timeoutMu sync.RWMutex
-	timeouts  map[string]*time.Timer
+	timeouts  map[uint64]*time.Timer
 
 	// 熔断器管理，每个执行器一个熔断器
 	breakerMu sync.RWMutex
@@ -113,6 +114,9 @@ func NewTaskRunner(
 	logger *zap.Logger,
 	maxWorkers int,
 	callbackURL func(id uint64) string,
+	taskRepo task.Repo,
+	executionRepo execution.Repo,
+	executorRepo executor.Repo,
 ) *TaskRunner {
 	return &TaskRunner{
 		storage:   storage,
@@ -121,12 +125,15 @@ func NewTaskRunner(
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		maxWorkers:  maxWorkers,
-		taskCh:      make(chan *taskJob, maxWorkers*2),
-		stopCh:      make(chan struct{}),
-		timeouts:    make(map[string]*time.Timer),
-		breakers:    make(map[uint64]*CircuitBreaker),
-		callbackURL: callbackURL,
+		maxWorkers:    maxWorkers,
+		taskCh:        make(chan *taskJob, maxWorkers*2),
+		stopCh:        make(chan struct{}),
+		timeouts:      make(map[uint64]*time.Timer),
+		breakers:      make(map[uint64]*CircuitBreaker),
+		callbackURL:   callbackURL,
+		taskRepo:      taskRepo,
+		executionRepo: executionRepo,
+		executorRepo:  executorRepo,
 	}
 }
 
@@ -169,32 +176,34 @@ func (r *TaskRunner) Submit(task *task.Task, record *execution.TaskExecution) {
 			zap.Uint64("execution_id", record.ID))
 
 		// 更新执行状态为失败
+		ctx := context.Background()
 		record.Status = execution.ExecutionStatusFailed
 		record.Logs = "Task queue is full"
 		now := time.Now()
 		record.EndTime = &now
-		r.storage.DB().Save(record)
+		r.executionRepo.Save(ctx, record)
 	}
 }
 
 func (r *TaskRunner) Submit2(taskId uint64, parameters map[string]any, executionId uint64) {
-	var task task.Task
-	if err := r.storage.DB().Where("id = ?", taskId).First(&task).Error; err != nil {
+	ctx := context.Background()
+	tsk, err := r.taskRepo.GetByID(ctx, taskId)
+	if err != nil {
 		r.logger.Error("failed to load task",
 			zap.Uint64("task_id", taskId),
 			zap.Error(err))
 		return
 	}
 
-	var execution executionrepo.TaskExecution
-	if err := r.storage.DB().Where("id = ?", executionId).First(&execution).Error; err != nil {
+	exec, err := r.executionRepo.GetByID(ctx, executionId)
+	if err != nil {
 		r.logger.Error("failed to load task execution",
 			zap.Uint64("execution_id", executionId),
 			zap.Error(err))
 		return
 	}
 
-	r.Submit(&task, &execution)
+	r.Submit(tsk, exec)
 }
 
 // worker 工作协程
@@ -215,27 +224,27 @@ func (r *TaskRunner) worker(id int) {
 }
 
 // executeTask 执行任务（使用循环替代递归，避免栈溢出）
-func (r *TaskRunner) executeTask(task *task.Task, execution *execution.TaskExecution) {
+func (r *TaskRunner) executeTask(tsk *task.Task, exec *execution.TaskExecution) {
 	ctx := context.Background()
 
 	r.logger.Info("executing task",
-		zap.String("task_id", task.ID),
-		zap.String("task_name", task.Name),
-		zap.String("execution_id", execution.ID))
+		zap.Uint64("task_id", tsk.ID),
+		zap.String("task_name", tsk.Name),
+		zap.Uint64("execution_id", exec.ID))
 
 	// 更新执行状态为运行中
 	now := time.Now()
-	execution.Status = models.ExecutionStatusRunning
-	execution.StartTime = &now
-	if err := r.storage.DB().Save(execution).Error; err != nil {
+	exec.Status = execution.ExecutionStatusRunning
+	exec.StartTime = &now
+	if err := r.executionRepo.Save(ctx, exec); err != nil {
 		r.logger.Error("failed to update execution status",
-			zap.String("execution_id", execution.ID),
+			zap.Uint64("execution_id", exec.ID),
 			zap.Error(err))
 	}
 
 	// 使用循环处理重试，避免递归调用
 	var lastErr error
-	maxRetries := task.MaxRetry
+	maxRetries := tsk.MaxRetry
 	if maxRetries < 0 {
 		maxRetries = 0
 	}
@@ -248,53 +257,53 @@ func (r *TaskRunner) executeTask(task *task.Task, execution *execution.TaskExecu
 				backoff = 30 * time.Second
 			}
 			r.logger.Info("retrying task execution",
-				zap.Uint64("task_id", task.ID),
-				zap.Uint64("execution_id", execution.ID),
+				zap.Uint64("task_id", tsk.ID),
+				zap.Uint64("execution_id", exec.ID),
 				zap.Int("attempt", attempt),
 				zap.Duration("backoff", backoff))
 			time.Sleep(backoff)
 		}
 
 		// 获取健康的执行器
-		executors, err := models.NewExecutorRepo(r.storage.DB()).GetHealthyExecutors(ctx, task.ID)
+		executors, err := r.executorRepo.GetHealthyExecutorsForTask(ctx, tsk.ID)
 		if err != nil || len(executors) == 0 {
 			lastErr = fmt.Errorf("no healthy executors available")
 			continue
 		}
 
 		// 使用负载均衡策略选择执行器
-		selectedExecutor, err := r.lbManager.SelectExecutor(ctx, task, executors)
+		selectedExecutor, err := r.lbManager.SelectExecutor(ctx, tsk, executors)
 		if err != nil {
 			lastErr = fmt.Errorf("failed to select executor: %w", err)
 			continue
 		}
 
 		// 更新执行记录中的执行器ID
-		execution.ExecutorID = &selectedExecutor.ID
-		execution.RetryCount = attempt
-		if err := r.storage.DB().Save(execution).Error; err != nil {
+		exec.ExecutorID = selectedExecutor.ID
+		exec.RetryCount = attempt
+		if err := r.executionRepo.Save(ctx, exec); err != nil {
 			r.logger.Error("failed to update executor id",
-				zap.String("execution_id", execution.ID),
+				zap.Uint64("execution_id", exec.ID),
 				zap.Error(err))
 		}
 
 		// 调用执行器
-		err = r.callExecutor(ctx, task, execution, selectedExecutor)
+		err = r.callExecutor(ctx, tsk, exec, selectedExecutor)
 		if err != nil {
 			lastErr = err
 			continue
 		}
 
 		// 执行成功，设置超时监控
-		if task.TimeoutSeconds > 0 {
+		if tsk.TimeoutSeconds > 0 {
 			// 使用context取消机制替代goroutine
-			r.scheduleTimeout(execution.ID, time.Duration(task.TimeoutSeconds)*time.Second)
+			r.scheduleTimeout(exec.ID, time.Duration(tsk.TimeoutSeconds)*time.Second)
 		}
 		return
 	}
 
 	// 所有重试都失败
-	r.failExecution(execution, fmt.Sprintf("Execution failed after %d attempts: %v", maxRetries+1, lastErr))
+	r.failExecution(exec, fmt.Sprintf("Execution failed after %d attempts: %v", maxRetries+1, lastErr))
 }
 
 // getOrCreateBreaker 获取或创建执行器的熔断器
@@ -317,16 +326,16 @@ func (r *TaskRunner) getOrCreateBreaker(executorID uint64) *CircuitBreaker {
 }
 
 // RemoveBreaker 移除执行器的熔断器（当执行器下线时调用）
-func (r *TaskRunner) RemoveBreaker(executorID string) {
+func (r *TaskRunner) RemoveBreaker(executorID uint64) {
 	r.breakerMu.Lock()
 	defer r.breakerMu.Unlock()
 	delete(r.breakers, executorID)
 	r.logger.Debug("circuit breaker removed for offline executor",
-		zap.String("executor_id", executorID))
+		zap.Uint64("executor_id", executorID))
 }
 
 // ResetBreaker 重置执行器的熔断器（当执行器恢复上线时调用）
-func (r *TaskRunner) ResetBreaker(executorID string) {
+func (r *TaskRunner) ResetBreaker(executorID uint64) {
 	r.breakerMu.Lock()
 	defer r.breakerMu.Unlock()
 	if breaker, exists := r.breakers[executorID]; exists {
@@ -336,7 +345,7 @@ func (r *TaskRunner) ResetBreaker(executorID string) {
 		breaker.successCount = 0
 		breaker.mu.Unlock()
 		r.logger.Debug("circuit breaker reset for recovered executor",
-			zap.String("executor_id", executorID))
+			zap.Uint64("executor_id", executorID))
 	}
 }
 
@@ -355,7 +364,7 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *task.Task, executio
 			"task_id":      task.ID,
 			"task_name":    task.Name,
 			"parameters":   task.Parameters,
-			// "callback_url": r.callbackURL(execution.ID),// TODO: fix
+			"callback_url": r.callbackURL(execution.ID),
 		}
 
 		jsonData, err := json.Marshal(payload)
@@ -383,34 +392,35 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *task.Task, executio
 		}
 
 		r.logger.Info("successfully called executor",
-			zap.String("task_id", task.ID),
-			zap.String("execution_id", execution.ID),
-			zap.String("executor_id", exec.ID))
+			zap.Uint64("task_id", task.ID),
+			zap.Uint64("execution_id", execution.ID),
+			zap.Uint64("executor_id", exec.ID))
 
 		return nil
 	})
 }
 
 // failExecution 标记执行失败
-func (r *TaskRunner) failExecution(execution *executionrepo.TaskExecution, reason string) {
+func (r *TaskRunner) failExecution(exec *execution.TaskExecution, reason string) {
+	ctx := context.Background()
 	now := time.Now()
-	execution.Status = models.ExecutionStatusFailed
-	execution.EndTime = &now
-	execution.Logs = reason
+	exec.Status = execution.ExecutionStatusFailed
+	exec.EndTime = &now
+	exec.Logs = reason
 
-	if err := r.storage.DB().Save(execution).Error; err != nil {
+	if err := r.executionRepo.Save(ctx, exec); err != nil {
 		r.logger.Error("failed to update execution status",
-			zap.String("execution_id", execution.ID),
+			zap.Uint64("execution_id", exec.ID),
 			zap.Error(err))
 	}
 
 	r.logger.Error("task execution failed",
-		zap.String("execution_id", execution.ID),
+		zap.Uint64("execution_id", exec.ID),
 		zap.String("reason", reason))
 }
 
 // scheduleTimeout 设置超时定时器（避免goroutine泄漏）
-func (r *TaskRunner) scheduleTimeout(executionID string, timeout time.Duration) {
+func (r *TaskRunner) scheduleTimeout(executionID uint64, timeout time.Duration) {
 	r.timeoutMu.Lock()
 	defer r.timeoutMu.Unlock()
 
@@ -428,7 +438,7 @@ func (r *TaskRunner) scheduleTimeout(executionID string, timeout time.Duration) 
 }
 
 // CancelTimeout 取消超时定时器
-func (r *TaskRunner) CancelTimeout(executionID string) {
+func (r *TaskRunner) CancelTimeout(executionID uint64) {
 	r.timeoutMu.Lock()
 	defer r.timeoutMu.Unlock()
 
@@ -439,35 +449,36 @@ func (r *TaskRunner) CancelTimeout(executionID string) {
 }
 
 // handleTimeout 处理执行超时
-func (r *TaskRunner) handleTimeout(executionID string) {
+func (r *TaskRunner) handleTimeout(executionID uint64) {
+	ctx := context.Background()
+
 	// 清理定时器记录
 	r.timeoutMu.Lock()
 	delete(r.timeouts, executionID)
 	r.timeoutMu.Unlock()
 
-	// 重新加载执行记录
-	var current executionrepo.TaskExecution
-	if err := r.storage.DB().Where("id = ?", executionID).First(&current).Error; err != nil {
+	current, err := r.executionRepo.GetByID(ctx, executionID)
+	if err != nil {
 		r.logger.Error("failed to load execution",
-			zap.String("execution_id", executionID),
+			zap.Uint64("execution_id", executionID),
 			zap.Error(err))
 		return
 	}
 
 	// 如果仍在运行，标记为超时
-	if current.Status == models.ExecutionStatusRunning {
+	if current.Status == execution.ExecutionStatusRunning {
 		now := time.Now()
-		current.Status = models.ExecutionStatusTimeout
+		current.Status = execution.ExecutionStatusTimeout
 		current.EndTime = &now
 		current.Logs = "Execution timeout"
 
-		if err := r.storage.DB().Save(&current).Error; err != nil {
+		if err := r.executionRepo.Save(ctx, current); err != nil {
 			r.logger.Error("failed to update execution status",
-				zap.String("execution_id", executionID),
+				zap.Uint64("execution_id", executionID),
 				zap.Error(err))
 		}
 
 		r.logger.Warn("task execution timeout",
-			zap.String("execution_id", executionID))
+			zap.Uint64("execution_id", executionID))
 	}
 }

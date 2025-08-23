@@ -4,20 +4,21 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/biz/executor"
-	"github.com/jobs/scheduler/internal/infra/persistence/executionrepo"
-	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/orm"
+	"github.com/jobs/scheduler/internal/biz/load_balance"
 )
 
 // LeastLoadedStrategy 最少负载策略
 type LeastLoadedStrategy struct {
-	storage *orm.Storage
+	executionRepo execution.Repo
+	loadBalanceRepo load_balance.Repo
 }
 
-func NewLeastLoadedStrategy(storage *orm.Storage) *LeastLoadedStrategy {
+func NewLeastLoadedStrategy(executionRepo execution.Repo, loadBalanceRepo load_balance.Repo) *LeastLoadedStrategy {
 	return &LeastLoadedStrategy{
-		storage: storage,
+		executionRepo: executionRepo,
+		loadBalanceRepo: loadBalanceRepo,
 	}
 }
 
@@ -28,19 +29,14 @@ func (s *LeastLoadedStrategy) Select(ctx context.Context, taskID uint64, executo
 
 	// 统计每个执行器的运行任务数
 	type executorLoad struct {
-		executor *models.Executor
+		executor *executor.Executor
 		load     int64
 	}
 
 	loads := make([]executorLoad, 0, len(executors))
 	for _, exec := range executors {
-		var count int64
-		// 统计所有同名执行器的运行任务总数
-		err := s.storage.DB().
-			Model(&executionrepo.TaskExecution{}).
-			Joins("JOIN executors ON executors.id = task_executions.executor_id").
-			Where("executors.name = ? AND task_executions.status = ?", exec.Name, models.ExecutionStatusRunning).
-			Count(&count).Error
+		// 统计该执行器的运行任务数
+		count, err := s.executionRepo.CountByExecutorAndStatus(ctx, exec.ID, []execution.ExecutionStatus{execution.ExecutionStatusRunning})
 		if err != nil {
 			return nil, fmt.Errorf("failed to count running tasks: %w", err)
 		}
@@ -60,20 +56,19 @@ func (s *LeastLoadedStrategy) Select(ctx context.Context, taskID uint64, executo
 	}
 
 	// 更新负载均衡状态
-	var state models.LoadBalanceState
-	err := s.storage.DB().Where("task_id = ?", taskID).First(&state).Error
+	state, err := s.loadBalanceRepo.GetByTaskID(ctx, taskID)
 	if err != nil {
 		// 创建新状态
-		state = models.LoadBalanceState{
+		state = &load_balance.LoadBalanceState{
 			TaskID:         taskID,
 			LastExecutorID: &minLoad.executor.ID,
 		}
-		if err := s.storage.DB().Create(&state).Error; err != nil {
+		if err := s.loadBalanceRepo.Create(ctx, state); err != nil {
 			return nil, fmt.Errorf("failed to create load balance state: %w", err)
 		}
 	} else {
 		state.LastExecutorID = &minLoad.executor.ID
-		if err := s.storage.DB().Save(&state).Error; err != nil {
+		if err := s.loadBalanceRepo.Save(ctx, state); err != nil {
 			return nil, fmt.Errorf("failed to update load balance state: %w", err)
 		}
 	}

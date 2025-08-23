@@ -30,6 +30,6 @@ func (e *EventBus) ReloadTasks() error {
 }
 
 func (e *EventBus) CancelExecutionTimer(executionID uint64) error {
-	e.taskRunner.CancelTimeout(cast.ToString(executionID))
+	e.taskRunner.CancelTimeout(executionID)
 	return nil
 }

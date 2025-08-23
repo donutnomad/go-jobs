@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,26 +77,7 @@ func (e *ExecutionAPI) Get(ctx *gin.Context, id uint64) (*TaskExecutionResp, err
 	} else if execution_ == nil {
 		return nil, errors.New("execution not found")
 	}
-
-	out := new(TaskExecutionResp).FromDomain(execution_)
-
-	task_, err := e.taskRepo.GetByID(ctx, execution_.TaskID)
-	if err != nil {
-		return nil, err
-	}
-	if (task_) != nil {
-		out.Task = new(TaskResp).FromDomain(task_)
-	}
-
-	if execution_.ExecutorID > 0 {
-		executor_, err := e.executorRepo.GetByID(ctx, execution_.ExecutorID)
-		if err != nil {
-			return nil, err
-		}
-		out.Executor = new(ExecutorResp).FromDomain(executor_)
-	}
-
-	return out, nil
+	return e.loadFrom(ctx, execution_), nil
 }
 
 func (e *ExecutionAPI) Callback(ctx *gin.Context, id uint64, req ExecutionCallbackRequest) (string, error) {
@@ -118,10 +100,12 @@ func (e *ExecutionAPI) Callback(ctx *gin.Context, id uint64, req ExecutionCallba
 
 	_ = e.emitter.CancelExecutionTimer(id)
 
-	return "callback processed", nil
+	return "ok", nil
 }
 
 func (e *ExecutionAPI) Stop(ctx *gin.Context, id uint64) (string, error) {
+	var msg = "ok"
+
 	record, err := e.executionRepo.GetByID(ctx, id)
 	if err != nil {
 		return "", err
@@ -154,6 +138,7 @@ func (e *ExecutionAPI) Stop(ctx *gin.Context, id uint64) (string, error) {
 		if resp.StatusCode != http.StatusOK {
 			var errorResp map[string]any
 			_ = json.NewDecoder(resp.Body).Decode(&errorResp)
+			msg = fmt.Sprintf("executor stop endpoint returned status %d: %v", resp.StatusCode, errorResp)
 			e.logger.Error("executor stop endpoint returned error",
 				zap.Uint64("execution_id", id),
 				zap.Int("status_code", resp.StatusCode),
@@ -164,94 +149,86 @@ func (e *ExecutionAPI) Stop(ctx *gin.Context, id uint64) (string, error) {
 	if err := e.executionRepo.Save(ctx, record); err != nil {
 		return "", errors.Join(err, errors.New("failed to update execution status"))
 	}
-	return "stop request sent to executor", nil
+	return msg, nil
 }
 
 func (e *ExecutionAPI) Stats(ctx *gin.Context, req ExecutionStatsReq) (*ExecutionStatsResp, error) {
+	countQuery := execution.CountQuery{
+		StartTime: mo.EmptyableToOption(req.StartTime),
+		EndTime:   mo.EmptyableToOption(req.EndTime),
+		TaskID:    mo.EmptyableToOption(req.TaskID),
+	}
+
 	var stats ExecutionStatsResp
-	var err error
-
-	countQuery := execution.CountQuery{}
-	countQuery.StartTime = mo.EmptyableToOption(req.StartTime)
-	countQuery.EndTime = mo.EmptyableToOption(req.EndTime)
-	countQuery.TaskID = mo.EmptyableToOption(req.TaskID)
-
-	countQuery.Status = mo.Some(execution.ExecutionStatusSuccess)
-	stats.Success, err = e.executionRepo.Count(ctx, countQuery)
-	if err != nil {
-		return nil, err
-	}
-
-	countQuery.Status = mo.Some(execution.ExecutionStatusFailed)
-	stats.Failed, err = e.executionRepo.Count(ctx, countQuery)
-	if err != nil {
-		return nil, err
-	}
-
-	countQuery.Status = mo.Some(execution.ExecutionStatusRunning)
-	stats.Running, err = e.executionRepo.Count(ctx, countQuery)
-	if err != nil {
-		return nil, err
-	}
-
-	countQuery.Status = mo.Some(execution.ExecutionStatusPending)
-	stats.Pending, err = e.executionRepo.Count(ctx, countQuery)
-	if err != nil {
-		return nil, err
+	for _, item := range []struct {
+		Status execution.ExecutionStatus
+		Count  *int64
+	}{
+		{
+			execution.ExecutionStatusSuccess,
+			&stats.Success,
+		},
+		{
+			execution.ExecutionStatusFailed,
+			&stats.Failed,
+		},
+		{
+			execution.ExecutionStatusPending,
+			&stats.Pending,
+		},
+		{
+			execution.ExecutionStatusRunning,
+			&stats.Running,
+		},
+	} {
+		countQuery.Status = mo.Some(item.Status)
+		count, err := e.executionRepo.Count(ctx, countQuery)
+		if err != nil {
+			return nil, err
+		}
+		*item.Count = count
 	}
 
 	return &stats, nil
 }
 
 func (e *ExecutionAPI) List(ctx *gin.Context, req ListExecutionReq) (ListExecutionResp, error) {
-	// 分页参数
-	page := max(1, req.Page)
-	pageSize := 20 // 默认每页20条
-	if req.PageSize != 0 {
-		pageSize = req.PageSize
-	}
-	// 计算偏移量
-	offset := (page - 1) * pageSize
-
 	executions, total, err := e.executionRepo.List(ctx, execution.ListFilter{
 		StartTime: mo.Some(req.StartTime),
 		EndTime:   mo.Some(req.EndTime),
 		TaskID:    mo.Some(req.TaskID),
 		Status:    mo.Some(req.Status),
-	}, offset, pageSize)
+	}, req.GetOffset(), req.GetLimit())
 	if err != nil {
 		return ListExecutionResp{}, err
 	}
 
-	var outList []*TaskExecutionResp
-	for _, execution_ := range executions {
-		out := new(TaskExecutionResp).FromDomain(execution_)
-		task_, _ := e.taskRepo.GetByID(ctx, execution_.TaskID)
-		if task_ != nil {
-			out.Task = new(TaskResp).FromDomain(task_)
-		}
-		if execution_.ExecutorID > 0 {
-			executor_, _ := e.executorRepo.GetByID(ctx, execution_.ExecutorID)
-			if executor_ != nil {
-				out.Executor = new(ExecutorResp).FromDomain(executor_)
-			}
-		}
-		outList = append(outList, out)
-	}
-
-	// 计算总页数
-	totalPages := int(total) / pageSize
-	if int(total)%pageSize > 0 {
-		totalPages++
-	}
+	outList := lo.Map(executions, func(item *execution.TaskExecution, index int) *TaskExecutionResp {
+		return e.loadFrom(ctx, item)
+	})
 
 	return ListExecutionResp{
 		Data:       outList,
 		Total:      total,
-		Page:       page,
-		PageSize:   pageSize,
-		TotalPages: totalPages,
+		Page:       req.Page,
+		PageSize:   req.GetLimit(),
+		TotalPages: req.GetTotalPages(total),
 	}, nil
+}
+
+func (e *ExecutionAPI) loadFrom(ctx context.Context, input *execution.TaskExecution) *TaskExecutionResp {
+	out := new(TaskExecutionResp).FromDomain(input)
+	task_, _ := e.taskRepo.GetByID(ctx, input.TaskID)
+	if task_ != nil {
+		out.Task = new(TaskResp).FromDomain(task_)
+	}
+	if input.ExecutorID > 0 {
+		executor_, _ := e.executorRepo.GetByID(ctx, input.ExecutorID)
+		if executor_ != nil {
+			out.Executor = new(ExecutorResp).FromDomain(executor_)
+		}
+	}
+	return out
 }
 
 func mustMarshal(t any) []byte {

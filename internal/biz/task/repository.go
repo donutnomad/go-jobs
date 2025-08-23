@@ -13,6 +13,9 @@ type Repo interface {
 	Delete(ctx context.Context, id uint64) error
 	Update(ctx context.Context, id uint64, patch *TaskPatch) error
 	List(ctx context.Context, filter *TaskFilter) ([]*Task, error)
+	
+	// FindActiveTasks 查找所有活跃任务
+	FindActiveTasks(ctx context.Context) ([]*Task, error)
 
 	// FindByIDWithAssignments 获取任务及其关联的执行器
 	FindByIDWithAssignments(ctx context.Context, id uint64) (*Task, error)

@@ -3,21 +3,21 @@ package scheduler
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jobs/scheduler/internal/biz/execution"
+	"github.com/jobs/scheduler/internal/biz/executor"
+	"github.com/jobs/scheduler/internal/biz/load_balance"
+	"github.com/jobs/scheduler/internal/biz/scheduler_instance"
 	"github.com/jobs/scheduler/internal/biz/task"
-	"github.com/jobs/scheduler/internal/infra/persistence/executionrepo"
 	"github.com/jobs/scheduler/internal/loadbalance"
-	"github.com/jobs/scheduler/internal/models"
 	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/pkg/config"
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 // Scheduler 任务调度器
@@ -38,35 +38,53 @@ type Scheduler struct {
 
 	// 任务执行器
 	taskRunner *TaskRunner
+
+	// repositories
+	taskRepo              task.Repo
+	executionRepo         execution.Repo
+	schedulerInstanceRepo scheduler_instance.Repo
 }
 
 // New 创建调度器
-func New(cfg config.Config, storage *orm.Storage, logger *zap.Logger, callbackURL func(uint64) string) (*Scheduler, error) {
+func New(
+	cfg config.Config,
+	storage *orm.Storage,
+	logger *zap.Logger,
+	callbackURL func(uint64) string,
+	taskRepo task.Repo,
+	executionRepo execution.Repo,
+	executorRepo executor.Repo,
+	schedulerInstanceRepo scheduler_instance.Repo,
+	loadBalanceRepo load_balance.Repo,
+) (*Scheduler, error) {
 	sqlDB, err := storage.DB().DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sql.DB: %w", err)
 	}
 
 	s := &Scheduler{
-		config:     cfg.Scheduler,
-		storage:    storage,
-		sqlDB:      sqlDB,
-		logger:     logger,
-		instanceID: cfg.Scheduler.InstanceID,
-		isLeader:   false,
-		stopCh:     make(chan struct{}),
-		lbManager:  loadbalance.NewManager(storage),
-		cron:       cron.New(cron.WithSeconds()),
+		config:                cfg.Scheduler,
+		storage:               storage,
+		sqlDB:                 sqlDB,
+		logger:                logger,
+		instanceID:            cfg.Scheduler.InstanceID,
+		isLeader:              false,
+		stopCh:                make(chan struct{}),
+		lbManager:             loadbalance.NewManager(loadBalanceRepo, taskRepo, executionRepo),
+		cron:                  cron.New(cron.WithSeconds()),
+		taskRepo:              taskRepo,
+		executionRepo:         executionRepo,
+		schedulerInstanceRepo: schedulerInstanceRepo,
 	}
 
 	// 创建分布式锁
 	s.locker = NewLocker(sqlDB, cfg.Scheduler.LockKey, cfg.Scheduler.LockTimeout, logger)
 
 	// 创建任务执行器
-	s.taskRunner = NewTaskRunner(storage, s.lbManager, logger, cfg.Scheduler.MaxWorkers, callbackURL)
+	s.taskRunner = NewTaskRunner(storage, s.lbManager, logger, cfg.Scheduler.MaxWorkers, callbackURL, taskRepo, executionRepo, executorRepo)
 
 	// Executor健康检查
-	s.healthChecker = NewHealthChecker(storage, logger, cfg.HealthCheck, s.taskRunner)
+	s.healthChecker = NewHealthChecker(storage, logger, cfg.HealthCheck, s.taskRunner, executorRepo)
 
 	// 注册调度器实例
 	if err := s.registerInstance(); err != nil {
@@ -140,7 +158,8 @@ func (s *Scheduler) GetTaskRunner() *TaskRunner {
 
 // registerInstance 注册调度器实例
 func (s *Scheduler) registerInstance() error {
-	instance := models.SchedulerInstance{
+	ctx := context.Background()
+	instance := &scheduler_instance.SchedulerInstance{
 		ID:         uuid.New().String(),
 		InstanceID: s.instanceID,
 		Host:       "localhost", // TODO: 获取真实主机名
@@ -149,21 +168,22 @@ func (s *Scheduler) registerInstance() error {
 	}
 
 	// 检查实例是否已存在
-	var existing models.SchedulerInstance
-	err := s.storage.DB().Where("instance_id = ?", s.instanceID).First(&existing).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	existing, err := s.schedulerInstanceRepo.GetByInstanceID(ctx, s.instanceID)
+	if err != nil {
+		return fmt.Errorf("failed to query scheduler instance: %w", err)
+	}
+
+	if existing == nil {
 		// 创建新实例
-		if err := s.storage.DB().Create(&instance).Error; err != nil {
+		if err := s.schedulerInstanceRepo.Create(ctx, instance); err != nil {
 			return fmt.Errorf("failed to create scheduler instance: %w", err)
 		}
-	} else if err == nil {
+	} else {
 		// 更新现有实例
 		existing.IsLeader = false
-		if err := s.storage.DB().Save(&existing).Error; err != nil {
+		if err := s.schedulerInstanceRepo.Save(ctx, existing); err != nil {
 			return fmt.Errorf("failed to update scheduler instance: %w", err)
 		}
-	} else {
-		return fmt.Errorf("failed to query scheduler instance: %w", err)
 	}
 
 	return nil
@@ -228,19 +248,18 @@ func (s *Scheduler) tryBecomeLeader() {
 
 // updateInstanceStatus 更新实例状态
 func (s *Scheduler) updateInstanceStatus(isLeader bool) {
-	result := s.storage.DB().
-		Model(&models.SchedulerInstance{}).
-		Where("instance_id = ?", s.instanceID).
-		Update("is_leader", isLeader)
-
-	if result.Error != nil {
+	ctx := context.Background()
+	err := s.schedulerInstanceRepo.UpdateLeaderStatus(ctx, s.instanceID, isLeader)
+	if err != nil {
 		s.logger.Error("failed to update instance status",
-			zap.Error(result.Error))
+			zap.Error(err))
 	}
 }
 
 // loadAndScheduleTasks 加载并调度任务
 func (s *Scheduler) loadAndScheduleTasks() error {
+	ctx := context.Background()
+
 	// 清除所有现有的cron任务
 	entries := s.cron.Entries()
 	for _, entry := range entries {
@@ -248,31 +267,27 @@ func (s *Scheduler) loadAndScheduleTasks() error {
 	}
 
 	// 加载所有活跃任务
-	var tasks []task.Task
-	err := s.storage.DB().
-		Where("status = ?", task.TaskStatusActive).
-		Find(&tasks).Error
+	tasks, err := s.taskRepo.FindActiveTasks(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load tasks: %w", err)
 	}
 
 	// 为每个任务添加cron调度
-	for _, task := range tasks {
-		t := task // 创建副本避免闭包问题
+	for _, t := range tasks {
 		entryID, err := s.cron.AddFunc(t.CronExpression, func() {
-			s.scheduleTask(&t)
+			s.scheduleTask(t)
 		})
 
 		if err != nil {
 			s.logger.Error("failed to add cron job",
-				zap.String("task_id", t.ID),
+				zap.Uint64("task_id", t.ID),
 				zap.String("task_name", t.Name),
 				zap.Error(err))
 			continue
 		}
 
 		s.logger.Info("scheduled task",
-			zap.String("task_id", t.ID),
+			zap.Uint64("task_id", t.ID),
 			zap.String("task_name", t.Name),
 			zap.String("cron", t.CronExpression),
 			zap.Int("entry_id", int(entryID)))
@@ -294,86 +309,79 @@ func (s *Scheduler) scheduleTask(task *task.Task) {
 	ctx := context.Background()
 
 	s.logger.Info("scheduling task",
-		zap.String("task_id", task.ID),
+		zap.Uint64("task_id", task.ID),
 		zap.String("task_name", task.Name))
 
 	// 检查执行模式
 	shouldExecute, err := s.checkExecutionMode(ctx, task)
 	if err != nil {
 		s.logger.Error("failed to check execution mode",
-			zap.String("task_id", task.ID),
+			zap.Uint64("task_id", task.ID),
 			zap.Error(err))
 		return
 	}
 
 	if !shouldExecute {
 		s.logger.Info("skipping task execution",
-			zap.String("task_id", task.ID),
+			zap.Uint64("task_id", task.ID),
 			zap.String("reason", "execution mode check"))
 		return
 	}
 
 	// 创建执行记录
-	execution := &executionrepo.TaskExecution{
-		ID:            uuid.New().String(),
+	exec := &execution.TaskExecution{
 		TaskID:        task.ID,
 		ScheduledTime: time.Now(),
-		Status:        models.ExecutionStatusPending,
+		Status:        execution.ExecutionStatusPending,
 	}
 
-	if err := s.storage.DB().Create(execution).Error; err != nil {
+	if err := s.executionRepo.Create(ctx, exec); err != nil {
 		s.logger.Error("failed to create execution record",
-			zap.String("task_id", task.ID),
+			zap.Uint64("task_id", task.ID),
 			zap.Error(err))
 		return
 	}
 
 	// 提交到任务执行器
-	s.taskRunner.Submit(task, execution)
+	s.taskRunner.Submit(task, exec)
 }
 
 // checkExecutionMode 检查执行模式
-func (s *Scheduler) checkExecutionMode(ctx context.Context, task *task.Task) (bool, error) {
-	switch task.ExecutionMode {
-	case models.ExecutionModeParallel:
+func (s *Scheduler) checkExecutionMode(ctx context.Context, task_ *task.Task) (bool, error) {
+	switch task_.ExecutionMode {
+	case task.ExecutionModeParallel:
 		// 并行模式，总是执行
 		return true, nil
 
-	case models.ExecutionModeSequential:
+	case task.ExecutionModeSequential:
 		// 串行模式，检查是否有正在运行的任务
-		var count int64
-		err := s.storage.DB().
-			Model(&executionrepo.TaskExecution{}).
-			Where("task_id = ? AND status IN ?", task.ID,
-				[]models.ExecutionStatus{models.ExecutionStatusPending, models.ExecutionStatusRunning}).
-			Count(&count).Error
+		count, err := s.executionRepo.CountByTaskAndStatus(ctx, task_.ID, []execution.ExecutionStatus{
+			execution.ExecutionStatusPending,
+			execution.ExecutionStatusRunning,
+		})
 		if err != nil {
 			return false, err
 		}
 		return count == 0, nil
 
-	case models.ExecutionModeSkip:
+	case task.ExecutionModeSkip:
 		// 跳过模式，如果有正在运行的任务则跳过
-		var count int64
-		err := s.storage.DB().
-			Model(&executionrepo.TaskExecution{}).
-			Where("task_id = ? AND status IN ?", task.ID,
-				[]models.ExecutionStatus{models.ExecutionStatusPending, models.ExecutionStatusRunning}).
-			Count(&count).Error
+		count, err := s.executionRepo.CountByTaskAndStatus(ctx, task_.ID, []execution.ExecutionStatus{
+			execution.ExecutionStatusPending,
+			execution.ExecutionStatusRunning,
+		})
 		if err != nil {
 			return false, err
 		}
 
 		if count > 0 {
 			// 创建跳过记录
-			execution := &executionrepo.TaskExecution{
-				ID:            uuid.New().String(),
-				TaskID:        task.ID,
-				ScheduledTime: time.Now(),
-				Status:        models.ExecutionStatusSkipped,
-				Logs:          "Skipped due to execution mode",
+			_, err := s.executionRepo.CreateSkipped(ctx, task_.ID, "Skipped due to execution mode")
+			if err != nil {
+				s.logger.Error("failed to create skipped execution",
+					zap.Uint64("task_id", task_.ID),
+					zap.Error(err))
 			}
-			s.storage.DB().Create(execution)
 			return false, nil
 		}
 		return true, nil

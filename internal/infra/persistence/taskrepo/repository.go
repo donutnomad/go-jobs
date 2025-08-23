@@ -78,6 +78,16 @@ func (r *MysqlRepositoryImpl) List(ctx context.Context, filter *domain.TaskFilte
 	}), nil
 }
 
+func (r *MysqlRepositoryImpl) FindActiveTasks(ctx context.Context) ([]*domain.Task, error) {
+	var pos []TaskPo
+	if err := r.Db(ctx).Where("status = ?", domain.TaskStatusActive).Find(&pos).Error; err != nil {
+		return nil, err
+	}
+	return lo.Map(pos, func(po TaskPo, _ int) *domain.Task {
+		return po.ToDomain()
+	}), nil
+}
+
 func (r *MysqlRepositoryImpl) FindByIDWithAssignments(ctx context.Context, id uint64) (*domain.Task, error) {
 	var po TaskPo
 	if err := r.Db(ctx).Where("id = ?", id).First(&po).Error; err != nil {

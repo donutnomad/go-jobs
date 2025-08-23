@@ -103,50 +103,6 @@ func (e *ExecutorAPI) List(ctx *gin.Context, req ListExecutorReq) ([]*ExecutorRe
 	return ret, nil
 }
 
-type ExecutorResp struct {
-	ID                  uint64                  `json:"id"`
-	CreatedAt           time.Time               `json:"created_at"`
-	UpdatedAt           time.Time               `json:"updated_at"`
-	Name                string                  `json:"name"`
-	InstanceID          string                  `json:"instance_id"`
-	BaseURL             string                  `json:"base_url"`
-	HealthCheckURL      string                  `json:"health_check_url"`
-	Status              executor.ExecutorStatus `json:"status"`
-	IsHealthy           bool                    `json:"is_healthy"`
-	LastHealthCheck     *time.Time              `json:"last_health_check"`
-	HealthCheckFailures int                     `json:"health_check_failures"`
-	Metadata            map[string]any          `json:"metadata"`
-	TaskAssignments     []*TaskAssignmentResp2  `json:"task_executors,omitempty"`
-}
-
-func (t *ExecutorResp) FromDomain(in *executor.Executor) *ExecutorResp {
-	return &ExecutorResp{
-		ID:                  in.ID,
-		CreatedAt:           in.CreatedAt,
-		UpdatedAt:           in.UpdatedAt,
-		Name:                in.Name,
-		InstanceID:          in.InstanceID,
-		BaseURL:             in.BaseURL,
-		HealthCheckURL:      in.HealthCheckURL,
-		Status:              in.Status,
-		IsHealthy:           in.IsHealthy,
-		LastHealthCheck:     in.LastHealthCheck,
-		HealthCheckFailures: in.HealthCheckFailures,
-		Metadata:            in.Metadata,
-	}
-}
-
-type TaskAssignmentResp2 struct {
-	TaskAssignmentResp
-	Task *TaskResp `json:"task"`
-}
-
-func (t *TaskAssignmentResp2) FromDomain(in *task.TaskAssignment) *TaskAssignmentResp2 {
-	return &TaskAssignmentResp2{
-		TaskAssignmentResp: *new(TaskAssignmentResp).FromDomain(in),
-	}
-}
-
 func (e *ExecutorAPI) Get(ctx *gin.Context, id uint64) (*ExecutorResp, error) {
 	exec, err := e.executorRepo.GetByID(ctx, id)
 	if err != nil {

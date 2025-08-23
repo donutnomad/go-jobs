@@ -6,7 +6,6 @@ import (
 	"github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/task"
-	"github.com/jobs/scheduler/internal/models"
 	"github.com/samber/lo"
 )
 
@@ -255,9 +254,31 @@ type ExecutionStatsResp struct {
 	Pending int64 `json:"pending"`
 }
 
+type PageAndSize struct {
+	Page     int `form:"page"`
+	PageSize int `form:"page_size"`
+}
+
+func (p PageAndSize) GetOffset() int {
+	return (max(1, p.Page) - 1) * p.GetLimit()
+}
+
+func (p PageAndSize) GetLimit() int {
+	if p.PageSize == 0 {
+		return 20
+	}
+	return p.PageSize
+}
+func (p PageAndSize) GetTotalPages(total int64) int {
+	totalPages := int(total) / p.GetLimit()
+	if int(total)%p.GetLimit() > 0 {
+		totalPages++
+	}
+	return totalPages
+}
+
 type ListExecutionReq struct {
-	Page      int                       `form:"page"`
-	PageSize  int                       `form:"page_size"`
+	PageAndSize
 	TaskID    uint64                    `form:"task_id"`
 	Status    execution.ExecutionStatus `form:"status"`
 	StartTime int64                     `form:"start_time"`
@@ -275,8 +296,17 @@ type ListExecutionResp struct {
 ////// common ///////
 
 type SchedulerStatsResp struct {
-	Instances []models.SchedulerInstance `json:"instances"`
-	Time      time.Time                  `json:"time"`
+	Instances []SchedulerInstanceResp `json:"instances"`
+	Time      time.Time               `json:"time"`
+}
+type SchedulerInstanceResp struct {
+	ID         string    `json:"id"`
+	InstanceID string    `json:"instance_id"`
+	Host       string    `json:"host"`
+	Port       int       `json:"port"`
+	IsLeader   bool      `json:"is_leader"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type TaskExecutionResp struct {
@@ -317,4 +347,48 @@ func (t *TaskExecutionResp) FromDomain(in *execution.TaskExecution) *TaskExecuti
 
 type GetTasksReq struct {
 	Status task.TaskStatus `form:"status" binding:"omitempty,oneof=active paused deleted"`
+}
+
+type ExecutorResp struct {
+	ID                  uint64                  `json:"id"`
+	CreatedAt           time.Time               `json:"created_at"`
+	UpdatedAt           time.Time               `json:"updated_at"`
+	Name                string                  `json:"name"`
+	InstanceID          string                  `json:"instance_id"`
+	BaseURL             string                  `json:"base_url"`
+	HealthCheckURL      string                  `json:"health_check_url"`
+	Status              executor.ExecutorStatus `json:"status"`
+	IsHealthy           bool                    `json:"is_healthy"`
+	LastHealthCheck     *time.Time              `json:"last_health_check"`
+	HealthCheckFailures int                     `json:"health_check_failures"`
+	Metadata            map[string]any          `json:"metadata"`
+	TaskAssignments     []*TaskAssignmentResp2  `json:"task_executors,omitempty"`
+}
+
+func (t *ExecutorResp) FromDomain(in *executor.Executor) *ExecutorResp {
+	return &ExecutorResp{
+		ID:                  in.ID,
+		CreatedAt:           in.CreatedAt,
+		UpdatedAt:           in.UpdatedAt,
+		Name:                in.Name,
+		InstanceID:          in.InstanceID,
+		BaseURL:             in.BaseURL,
+		HealthCheckURL:      in.HealthCheckURL,
+		Status:              in.Status,
+		IsHealthy:           in.IsHealthy,
+		LastHealthCheck:     in.LastHealthCheck,
+		HealthCheckFailures: in.HealthCheckFailures,
+		Metadata:            in.Metadata,
+	}
+}
+
+type TaskAssignmentResp2 struct {
+	TaskAssignmentResp
+	Task *TaskResp `json:"task"`
+}
+
+func (t *TaskAssignmentResp2) FromDomain(in *task.TaskAssignment) *TaskAssignmentResp2 {
+	return &TaskAssignmentResp2{
+		TaskAssignmentResp: *new(TaskAssignmentResp).FromDomain(in),
+	}
 }

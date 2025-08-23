@@ -6,20 +6,18 @@ import (
 	"sync"
 
 	"github.com/jobs/scheduler/internal/biz/executor"
-	"github.com/jobs/scheduler/internal/models"
-	"github.com/jobs/scheduler/internal/orm"
-	"gorm.io/gorm"
+	"github.com/jobs/scheduler/internal/biz/load_balance"
 )
 
 // RoundRobinStrategy 轮询策略
 type RoundRobinStrategy struct {
-	storage *orm.Storage
-	mu      sync.Mutex
+	loadBalanceRepo load_balance.Repo
+	mu              sync.Mutex
 }
 
-func NewRoundRobinStrategy(storage *orm.Storage) *RoundRobinStrategy {
+func NewRoundRobinStrategy(loadBalanceRepo load_balance.Repo) *RoundRobinStrategy {
 	return &RoundRobinStrategy{
-		storage: storage,
+		loadBalanceRepo: loadBalanceRepo,
 	}
 }
 
@@ -32,19 +30,20 @@ func (s *RoundRobinStrategy) Select(ctx context.Context, taskID uint64, executor
 	defer s.mu.Unlock()
 
 	// 获取或创建负载均衡状态
-	var state models.LoadBalanceState
-	err := s.storage.DB().Where("task_id = ?", taskID).First(&state).Error
-	if err == gorm.ErrRecordNotFound {
+	state, err := s.loadBalanceRepo.GetByTaskID(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get load balance state: %w", err)
+	}
+	
+	if state == nil {
 		// 创建新状态
-		state = models.LoadBalanceState{
+		state = &load_balance.LoadBalanceState{
 			TaskID:          taskID,
 			RoundRobinIndex: 0,
 		}
-		if err := s.storage.DB().Create(&state).Error; err != nil {
+		if err := s.loadBalanceRepo.Create(ctx, state); err != nil {
 			return nil, fmt.Errorf("failed to create load balance state: %w", err)
 		}
-	} else if err != nil {
-		return nil, fmt.Errorf("failed to get load balance state: %w", err)
 	}
 
 	// 选择下一个执行器
@@ -54,7 +53,7 @@ func (s *RoundRobinStrategy) Select(ctx context.Context, taskID uint64, executor
 	// 更新索引
 	state.RoundRobinIndex = (state.RoundRobinIndex + 1) % len(executors)
 	state.LastExecutorID = &selected.ID
-	if err := s.storage.DB().Save(&state).Error; err != nil {
+	if err := s.loadBalanceRepo.Save(ctx, state); err != nil {
 		return nil, fmt.Errorf("failed to update load balance state: %w", err)
 	}
 

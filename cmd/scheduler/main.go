@@ -15,6 +15,11 @@ import (
 	"time"
 
 	"github.com/jobs/scheduler/internal/api"
+	"github.com/jobs/scheduler/internal/infra/persistence/executionrepo"
+	"github.com/jobs/scheduler/internal/infra/persistence/executorrepo"
+	"github.com/jobs/scheduler/internal/infra/persistence/loadbalancerepo"
+	"github.com/jobs/scheduler/internal/infra/persistence/schedulerinstancerepo"
+	"github.com/jobs/scheduler/internal/infra/persistence/taskrepo"
 	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/internal/scheduler"
 	"github.com/jobs/scheduler/pkg/config"
@@ -79,8 +84,25 @@ func main() {
 		zapLogger.Fatal("Failed to get cfg.server.ip address")
 	}
 
+	// 创建repositories
+	taskRepo := taskrepo.NewMysqlRepositoryImpl(db.DB())
+	executionRepo := executionrepo.NewMysqlRepositoryImpl(db.DB())
+	executorRepo := executorrepo.NewMysqlRepositoryImpl(db.DB())
+	schedulerInstanceRepo := schedulerinstancerepo.NewMysqlRepositoryImpl(db.DB())
+	loadBalanceRepo := loadbalancerepo.NewMysqlRepositoryImpl(db.DB())
+
 	// 创建调度器
-	sched, err := scheduler.New(*cfg, db, zapLogger, api.ExecutionCallbackURL(net.JoinHostPort(myIP, strconv.Itoa(cfg.Server.Port)), false))
+	sched, err := scheduler.New(
+		*cfg, 
+		db, 
+		zapLogger, 
+		api.ExecutionCallbackURL(net.JoinHostPort(myIP, strconv.Itoa(cfg.Server.Port)), false),
+		taskRepo,
+		executionRepo,
+		executorRepo,
+		schedulerInstanceRepo,
+		loadBalanceRepo,
+	)
 	if err != nil {
 		zapLogger.Fatal("Failed to create scheduler", zap.Error(err))
 	}

@@ -83,3 +83,18 @@ func (m *MysqlRepositoryImpl) FindByStatus(ctx context.Context, status []domain.
 		return po.ToDomain()
 	}), nil
 }
+
+func (m *MysqlRepositoryImpl) GetHealthyExecutorsForTask(ctx context.Context, taskID uint64) ([]*domain.Executor, error) {
+	var pos []*Executor
+	if err := m.Db(ctx).Table(Executor{}.TableName()+" as e").
+		Joins("INNER JOIN jobs_task_assignments as ta ON ta.executor_name = e.name").
+		Where("ta.task_id = ?", taskID).
+		Where("e.is_healthy = ?", true).
+		Where("e.status = ", domain.ExecutorStatusOnline).
+		Scan(&pos).Error; err != nil {
+		return nil, err
+	}
+	return lo.Map(pos, func(po *Executor, _ int) *domain.Executor {
+		return po.ToDomain()
+	}), nil
+}
