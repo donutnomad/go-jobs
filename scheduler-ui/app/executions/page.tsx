@@ -162,7 +162,7 @@ export default function ExecutionsPage() {
             {execution.task?.name || 'Unknown'}
           </div>
           <div className="text-sm text-gray-500">
-            ID: {execution.task_id}...
+            ID: ...{execution.task_id.toString().slice(-8)}
           </div>
         </td>
       )}
@@ -171,7 +171,7 @@ export default function ExecutionsPage() {
           {execution.executor?.name || 'N/A'}
         </div>
         <div className="text-sm text-gray-500">
-          {execution.executor?.instance_id || (execution.executor_id ? execution.executor_id + '...' : 'N/A')}
+          {execution.executor?.instance_id || (execution.executor_id ?  '...' + execution.executor_id.toString().slice(-8) : 'N/A')}
         </div>
       </td>
       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -298,7 +298,7 @@ export default function ExecutionsPage() {
                           {taskExecutions[0]?.task?.name || 'Unknown Task'}
                         </h3>
                         <p className="text-sm text-gray-500">
-                          任务ID: {taskId}... | 执行次数: {taskExecutions.length}
+                          任务ID: ...{taskId.toString().slice(-8)} | 执行次数: {taskExecutions.length}
                         </p>
                       </div>
                       <div className="flex items-center space-x-4">

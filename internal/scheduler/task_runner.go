@@ -365,8 +365,8 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *task.Task, executio
 		url := exec.GetExecURL()
 
 		payload := map[string]any{
-			"execution_id": execution.ID,
-			"task_id":      task.ID,
+			"execution_id": cast.ToString(execution.ID),
+			"task_id":      cast.ToString(task.ID),
 			"task_name":    task.Name,
 			"parameters":   task.Parameters,
 			"callback_url": r.callbackURL(execution.ID),
@@ -383,7 +383,7 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *task.Task, executio
 		}
 
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Execution-ID", cast.ToString(execution.ID))
+		//req.Header.Set("X-Execution-ID", cast.ToString(execution.ID))
 
 		// 发送请求
 		resp, err := r.httpClient.Do(req)
