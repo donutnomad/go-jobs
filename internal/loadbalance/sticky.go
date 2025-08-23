@@ -7,6 +7,7 @@ import (
 
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/load_balance"
+	"github.com/yitter/idgenerator-go/idgen"
 )
 
 // StickyStrategy 粘性策略 - 始终选择同一个执行器
@@ -34,11 +35,12 @@ func (s *StickyStrategy) Select(ctx context.Context, taskID uint64, executors []
 	if err != nil {
 		return nil, fmt.Errorf("failed to get load balance state: %w", err)
 	}
-	
+
 	if state == nil {
 		// 创建新状态，选择第一个执行器作为粘性执行器
 		selected := executors[0]
 		state = &load_balance.LoadBalanceState{
+			ID:               uint64(idgen.NextId()),
 			TaskID:           taskID,
 			StickyExecutorID: &selected.ID,
 			LastExecutorID:   &selected.ID,

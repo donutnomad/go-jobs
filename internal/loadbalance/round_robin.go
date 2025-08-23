@@ -7,6 +7,7 @@ import (
 
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/load_balance"
+	"github.com/yitter/idgenerator-go/idgen"
 )
 
 // RoundRobinStrategy 轮询策略
@@ -34,10 +35,11 @@ func (s *RoundRobinStrategy) Select(ctx context.Context, taskID uint64, executor
 	if err != nil {
 		return nil, fmt.Errorf("failed to get load balance state: %w", err)
 	}
-	
+
 	if state == nil {
 		// 创建新状态
 		state = &load_balance.LoadBalanceState{
+			ID:              uint64(idgen.NextId()),
 			TaskID:          taskID,
 			RoundRobinIndex: 0,
 		}

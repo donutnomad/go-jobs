@@ -7,17 +7,18 @@ import (
 	"github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/load_balance"
+	"github.com/yitter/idgenerator-go/idgen"
 )
 
 // LeastLoadedStrategy 最少负载策略
 type LeastLoadedStrategy struct {
-	executionRepo execution.Repo
+	executionRepo   execution.Repo
 	loadBalanceRepo load_balance.Repo
 }
 
 func NewLeastLoadedStrategy(executionRepo execution.Repo, loadBalanceRepo load_balance.Repo) *LeastLoadedStrategy {
 	return &LeastLoadedStrategy{
-		executionRepo: executionRepo,
+		executionRepo:   executionRepo,
 		loadBalanceRepo: loadBalanceRepo,
 	}
 }
@@ -60,6 +61,7 @@ func (s *LeastLoadedStrategy) Select(ctx context.Context, taskID uint64, executo
 	if err != nil {
 		// 创建新状态
 		state = &load_balance.LoadBalanceState{
+			ID:             uint64(idgen.NextId()),
 			TaskID:         taskID,
 			LastExecutorID: &minLoad.executor.ID,
 		}

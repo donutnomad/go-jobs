@@ -5,6 +5,7 @@ import (
 )
 
 type LoadBalanceState struct {
+	ID               uint64
 	TaskID           uint64
 	LastExecutorID   *uint64
 	RoundRobinIndex  int

@@ -18,6 +18,7 @@ func (LoadBalanceStatePO) TableName() string {
 
 func (po *LoadBalanceStatePO) ToDomain() *domain.LoadBalanceState {
 	return &domain.LoadBalanceState{
+		ID:              po.ID,
 		TaskID:          po.TaskID,
 		RoundRobinIndex: po.RoundRobinIndex,
 		LastExecutorID:  po.LastExecutorID,
@@ -26,6 +27,7 @@ func (po *LoadBalanceStatePO) ToDomain() *domain.LoadBalanceState {
 }
 
 func (po *LoadBalanceStatePO) FromDomain(d *domain.LoadBalanceState) *LoadBalanceStatePO {
+	po.ID = d.ID
 	po.TaskID = d.TaskID
 	po.RoundRobinIndex = d.RoundRobinIndex
 	po.LastExecutorID = d.LastExecutorID

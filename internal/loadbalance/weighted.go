@@ -8,18 +8,19 @@ import (
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/load_balance"
 	"github.com/jobs/scheduler/internal/biz/task"
+	"github.com/yitter/idgenerator-go/idgen"
 )
 
 // WeightedRoundRobinStrategy 加权轮询策略
 type WeightedRoundRobinStrategy struct {
-	taskRepo task.Repo
+	taskRepo        task.Repo
 	loadBalanceRepo load_balance.Repo
-	mu      sync.Mutex
+	mu              sync.Mutex
 }
 
 func NewWeightedRoundRobinStrategy(taskRepo task.Repo, loadBalanceRepo load_balance.Repo) *WeightedRoundRobinStrategy {
 	return &WeightedRoundRobinStrategy{
-		taskRepo: taskRepo,
+		taskRepo:        taskRepo,
 		loadBalanceRepo: loadBalanceRepo,
 	}
 }
@@ -66,6 +67,7 @@ func (s *WeightedRoundRobinStrategy) Select(ctx context.Context, taskID uint64, 
 	state, err := s.loadBalanceRepo.GetByTaskID(ctx, taskID)
 	if err != nil {
 		state = &load_balance.LoadBalanceState{
+			ID:              uint64(idgen.NextId()),
 			TaskID:          taskID,
 			RoundRobinIndex: 0,
 		}
@@ -104,6 +106,7 @@ func (s *WeightedRoundRobinStrategy) selectDefault(ctx context.Context, taskID u
 	state, err := s.loadBalanceRepo.GetByTaskID(ctx, taskID)
 	if err != nil {
 		state = &load_balance.LoadBalanceState{
+			ID:              uint64(idgen.NextId()),
 			TaskID:          taskID,
 			RoundRobinIndex: 0,
 		}
