@@ -70,16 +70,16 @@ func NewExecutionAPI(db *gorm.DB, logger *zap.Logger, emitter IEmitter, executio
 }
 
 func (e *ExecutionAPI) Get(ctx *gin.Context, id uint64) (*TaskExecutionResp, error) {
-	execution, err := e.executionRepo.GetByID(ctx, id)
+	execution_, err := e.executionRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
-	} else if execution == nil {
+	} else if execution_ == nil {
 		return nil, errors.New("execution not found")
 	}
 
-	out := new(TaskExecutionResp).FromDomain(execution)
+	out := new(TaskExecutionResp).FromDomain(execution_)
 
-	task_, err := e.taskRepo.GetByID(ctx, execution.TaskID)
+	task_, err := e.taskRepo.GetByID(ctx, execution_.TaskID)
 	if err != nil {
 		return nil, err
 	}
@@ -87,32 +87,32 @@ func (e *ExecutionAPI) Get(ctx *gin.Context, id uint64) (*TaskExecutionResp, err
 		out.Task = new(TaskResp).FromDomain(task_)
 	}
 
-	if execution.ExecutorID > 0 {
-		executor, err := e.executorRepo.GetByID(ctx, execution.ExecutorID)
+	if execution_.ExecutorID > 0 {
+		executor_, err := e.executorRepo.GetByID(ctx, execution_.ExecutorID)
 		if err != nil {
 			return nil, err
 		}
-		out.Executor = new(ExecutorResp).FromDomain(executor)
+		out.Executor = new(ExecutorResp).FromDomain(executor_)
 	}
 
 	return out, nil
 }
 
 func (e *ExecutionAPI) Callback(ctx *gin.Context, id uint64, req ExecutionCallbackRequest) (string, error) {
-	execution, err := e.executionRepo.GetByID(ctx, id)
+	execution_, err := e.executionRepo.GetByID(ctx, id)
 	if err != nil {
 		return "", err
-	} else if execution == nil {
+	} else if execution_ == nil {
 		return "", errors.New("execution not found")
 	}
 
 	// 更新执行状态
-	execution.Status = req.Status
-	execution.EndTime = lo.ToPtr(time.Now())
-	execution.Result = req.Result
-	execution.Logs = req.Logs
+	execution_.Status = req.Status
+	execution_.EndTime = lo.ToPtr(time.Now())
+	execution_.Result = req.Result
+	execution_.Logs = req.Logs
 
-	if err := e.executionRepo.Save(ctx, execution); err != nil {
+	if err := e.executionRepo.Save(ctx, execution_); err != nil {
 		return "", fmt.Errorf("failed to update execution: %w", err)
 	}
 
@@ -134,14 +134,14 @@ func (e *ExecutionAPI) Stop(ctx *gin.Context, id uint64) (string, error) {
 	record.Status = execution.ExecutionStatusCancelled
 
 	if record.ExecutorID > 0 {
-		executor, err := e.executorRepo.GetByID(ctx, record.ExecutorID)
+		executor_, err := e.executorRepo.GetByID(ctx, record.ExecutorID)
 		if err != nil {
 			return "", err
 		}
 		stopReq := map[string]any{
 			"execution_id": id,
 		}
-		resp, err := http.Post(executor.GetStopURL(), "application/json", bytes.NewBuffer(mustMarshal(stopReq)))
+		resp, err := http.Post(executor_.GetStopURL(), "application/json", bytes.NewBuffer(mustMarshal(stopReq)))
 		if err != nil {
 			e.logger.Error("failed to call executor stop endpoint",
 				zap.Uint64("execution_id", id),
@@ -224,14 +224,14 @@ func (e *ExecutionAPI) List(ctx *gin.Context, req ListExecutionReq) (ListExecuti
 	}
 
 	var outList []*TaskExecutionResp
-	for _, execution := range executions {
-		out := new(TaskExecutionResp).FromDomain(execution)
-		task_, _ := e.taskRepo.GetByID(ctx, execution.TaskID)
+	for _, execution_ := range executions {
+		out := new(TaskExecutionResp).FromDomain(execution_)
+		task_, _ := e.taskRepo.GetByID(ctx, execution_.TaskID)
 		if task_ != nil {
 			out.Task = new(TaskResp).FromDomain(task_)
 		}
-		if execution.ExecutorID > 0 {
-			executor_, _ := e.executorRepo.GetByID(ctx, execution.ExecutorID)
+		if execution_.ExecutorID > 0 {
+			executor_, _ := e.executorRepo.GetByID(ctx, execution_.ExecutorID)
 			if executor_ != nil {
 				out.Executor = new(ExecutorResp).FromDomain(executor_)
 			}
