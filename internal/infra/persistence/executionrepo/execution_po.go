@@ -22,5 +22,5 @@ type TaskExecution struct {
 }
 
 func (TaskExecution) TableName() string {
-	return "task_executions"
+	return "jobs_task_executions"
 }

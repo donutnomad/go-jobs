@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/jobs/scheduler/internal/biz/execution"
 	domain "github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/infra/persistence/commonrepo"
 	"github.com/yitter/idgenerator-go/idgen"
@@ -64,7 +63,7 @@ func (r *MysqlRepositoryImpl) Save(ctx context.Context, execution *domain.TaskEx
 	return nil
 }
 
-func (r *MysqlRepositoryImpl) Create(ctx context.Context, execution *execution.TaskExecution) error {
+func (r *MysqlRepositoryImpl) Create(ctx context.Context, execution *domain.TaskExecution) error {
 	po := new(TaskExecution).FromDomain(execution)
 	err := r.Db(ctx).Create(po).Error
 	if err != nil {
@@ -116,7 +115,8 @@ func (r *MysqlRepositoryImpl) List(ctx context.Context, filter domain.ListFilter
 func (r *MysqlRepositoryImpl) CountByTaskAndStatus(ctx context.Context, taskID uint64, statuses []domain.ExecutionStatus) (int64, error) {
 	var count int64
 	err := r.Db(ctx).Model(&TaskExecution{}).
-		Where("task_id = ? AND status IN ?", taskID, statuses).
+		Where("task_id = ?", taskID).
+		Where("status IN ?", statuses).
 		Count(&count).Error
 	return count, err
 }
@@ -124,7 +124,8 @@ func (r *MysqlRepositoryImpl) CountByTaskAndStatus(ctx context.Context, taskID u
 func (r *MysqlRepositoryImpl) CountByExecutorAndStatus(ctx context.Context, executorID uint64, statuses []domain.ExecutionStatus) (int64, error) {
 	var count int64
 	err := r.Db(ctx).Model(&TaskExecution{}).
-		Where("executor_id = ? AND status IN ?", executorID, statuses).
+		Where("executor_id = ?", executorID).
+		Where("status IN ?", statuses).
 		Count(&count).Error
 	return count, err
 }
@@ -148,4 +149,48 @@ func (r *MysqlRepositoryImpl) CreateSkipped(ctx context.Context, taskID uint64, 
 		return nil, err
 	}
 	return execution_.ToDomain(), nil
+}
+
+func (r *MysqlRepositoryImpl) CountByTaskAndTimeRange(ctx context.Context, taskID uint64, startTime, endTime time.Time) (int64, error) {
+	var count int64
+	err := r.Db(ctx).Model(&TaskExecution{}).
+		Where("task_id = ?", taskID).
+		Where("created_at >= ?", startTime).
+		Where("created_at < ?", endTime).
+		Count(&count).Error
+	return count, err
+}
+
+func (r *MysqlRepositoryImpl) CountByTaskStatusAndTimeRange(ctx context.Context, taskID uint64, status domain.ExecutionStatus, startTime, endTime time.Time) (int64, error) {
+	var count int64
+	err := r.Db(ctx).Model(&TaskExecution{}).
+		Where("task_id = ?", taskID).
+		Where("status = ?", status).
+		Where("created_at >= ?", startTime).
+		Where("created_at < ?", endTime).
+		Count(&count).Error
+	return count, err
+}
+
+func (r *MysqlRepositoryImpl) CountByTaskStatusesAndTimeRange(ctx context.Context, taskID uint64, statuses []domain.ExecutionStatus, startTime, endTime time.Time) (int64, error) {
+	var count int64
+	err := r.Db(ctx).Model(&TaskExecution{}).
+		Where("task_id = ?", taskID).
+		Where("status IN ?", statuses).
+		Where("created_at >= ?", startTime).
+		Where("created_at < ?", endTime).
+		Count(&count).Error
+	return count, err
+}
+
+func (r *MysqlRepositoryImpl) GetAvgDuration(ctx context.Context, taskID uint64, startTime time.Time) (float64, error) {
+	var avgDuration float64
+	err := r.Db(ctx).Model(&TaskExecution{}).
+		Where("task_id = ?", taskID).
+		Where("created_at >= ?", startTime).
+		Where("start_time IS NOT NULL").
+		Where("end_time IS NOT NULL").
+		Select("AVG(TIMESTAMPDIFF(SECOND, start_time, end_time))").
+		Scan(&avgDuration).Error
+	return avgDuration, err
 }

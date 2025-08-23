@@ -14,7 +14,7 @@ type SchedulerInstancePO struct {
 }
 
 func (SchedulerInstancePO) TableName() string {
-	return "scheduler_instances"
+	return "jobs_scheduler_instances"
 }
 
 func (po *SchedulerInstancePO) ToDomain() *domain.SchedulerInstance {

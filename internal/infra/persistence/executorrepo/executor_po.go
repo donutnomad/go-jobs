@@ -22,5 +22,5 @@ type Executor struct {
 }
 
 func (Executor) TableName() string {
-	return "jobs_executors"
+	return "jobs_executor"
 }

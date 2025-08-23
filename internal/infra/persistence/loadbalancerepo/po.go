@@ -13,7 +13,7 @@ type LoadBalanceStatePO struct {
 }
 
 func (LoadBalanceStatePO) TableName() string {
-	return "load_balance_states"
+	return "jobs_load_balance_state"
 }
 
 func (po *LoadBalanceStatePO) ToDomain() *domain.LoadBalanceState {

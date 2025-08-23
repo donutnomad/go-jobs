@@ -11,5 +11,5 @@ type TaskAssignmentPo struct {
 }
 
 func (TaskAssignmentPo) TableName() string {
-	return "jobs_task_assignments"
+	return "jobs_task_assignment"
 }
