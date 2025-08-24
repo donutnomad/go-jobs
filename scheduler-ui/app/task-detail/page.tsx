@@ -119,7 +119,7 @@ interface Task {
 interface TaskExecutor {
     id: string;
     task_id: string;
-    executor_id: string;
+    executor_name: string;
     priority: number;
     weight: number;
     created_at: string;
@@ -264,7 +264,7 @@ function TaskDetailContent() {
 
     const handleUnassign = async (assignment: TaskExecutor) => {
         if (confirm(`确定要从该任务中移除执行器 "${assignment.executor.name}" 吗？`)) {
-            unassignMutation.mutate(assignment.executor_id);
+            unassignMutation.mutate(assignment.executor.id);
         }
     };
 
@@ -316,7 +316,7 @@ function TaskDetailContent() {
 
     const availableExecutors: AvailableExecutor[] = (allExecutors || []).map(executor => ({
         ...executor,
-        is_assigned: (task.task_executors || []).some(a => a.executor_id === executor.id)
+        is_assigned: (task.task_executors || []).some(a => a.executor_name === executor.name)
     }));
 
     const healthyCount = (task.task_executors || []).filter(a => a.executor.is_healthy && a.executor.status === 'online').length;
@@ -678,12 +678,12 @@ function AssignExecutorModal({
                                  availableExecutors,
                                  onSuccess
                              }: AssignExecutorModalProps) {
-    const [selectedExecutorId, setSelectedExecutorId] = useState('');
+    const [selectedExecutorName, setSelectedExecutorName] = useState('');
     const [priority, setPriority] = useState(10);
     const [weight, setWeight] = useState(1);
 
     const assignMutation = useMutation({
-        mutationFn: async (data: { executor_id: string; priority: number; weight: number }) => {
+        mutationFn: async (data: { executor_name: string; priority: number; weight: number }) => {
             const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}/executors`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -701,9 +701,9 @@ function AssignExecutorModal({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (selectedExecutorId) {
+        if (selectedExecutorName) {
             assignMutation.mutate({
-                executor_id: selectedExecutorId,
+                executor_name: selectedExecutorName,
                 priority,
                 weight,
             });
@@ -711,6 +711,16 @@ function AssignExecutorModal({
     };
 
     const unassignedExecutors = (availableExecutors || []).filter(e => !e.is_assigned);
+    
+    // 按name分组执行器
+    const groupedExecutors = unassignedExecutors.reduce((groups, executor) => {
+        const name = executor.name;
+        if (!groups[name]) {
+            groups[name] = [];
+        }
+        groups[name].push(executor);
+        return groups;
+    }, {} as Record<string, typeof unassignedExecutors>);
 
     if (!isOpen) return null;
 
@@ -725,16 +735,18 @@ function AssignExecutorModal({
                             选择执行器 *
                         </label>
                         <select
-                            value={selectedExecutorId}
-                            onChange={(e) => setSelectedExecutorId(e.target.value)}
+                            value={selectedExecutorName}
+                            onChange={(e) => setSelectedExecutorName(e.target.value)}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                             required
                         >
                             <option value="">请选择执行器</option>
-                            {unassignedExecutors.map((executor) => (
-                                <option key={executor.id} value={executor.id}>
-                                    {executor.name} ({executor.instance_id})
-                                </option>
+                            {Object.entries(groupedExecutors).map(([name, executors]) => (
+                                <optgroup key={name} label={`${name} (${executors.length}个实例)`}>
+                                    <option value={name}>
+                                        所有 {name} 实例
+                                    </option>
+                                </optgroup>
                             ))}
                         </select>
                         {unassignedExecutors.length === 0 && (
@@ -782,7 +794,7 @@ function AssignExecutorModal({
                         </button>
                         <button
                             type="submit"
-                            disabled={assignMutation.isPending || !selectedExecutorId}
+                            disabled={assignMutation.isPending || !selectedExecutorName}
                             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                         >
                             {assignMutation.isPending ? '分配中...' : '分配'}
@@ -815,7 +827,7 @@ function EditAssignmentModal({
 
     const updateMutation = useMutation({
         mutationFn: async (data: { priority: number; weight: number }) => {
-            const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}/executors/${assignment.executor_id}`, {
+            const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}/executors/${assignment.executor.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),

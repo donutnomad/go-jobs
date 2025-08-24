@@ -240,7 +240,7 @@ func (t *TaskAPI) GetTaskExecutors(ctx *gin.Context, id uint64) ([]*TaskAssignme
 }
 
 func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id uint64, req AssignExecutorReq) (*TaskAssignmentResp, error) {
-	executor_, err := t.executorRepo.GetByID(ctx, req.GetExecutorID())
+	executor_, err := t.executorRepo.GetByName(ctx, req.ExecutorName)
 	if err != nil {
 		return nil, err
 	} else if executor_ == nil {

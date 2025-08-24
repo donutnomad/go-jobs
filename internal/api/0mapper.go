@@ -7,7 +7,6 @@ import (
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/task"
 	"github.com/samber/lo"
-	"github.com/spf13/cast"
 )
 
 type CreateTaskReq struct {
@@ -125,13 +124,9 @@ type UpdateTaskReq struct {
 }
 
 type AssignExecutorReq struct {
-	ExecutorID string `json:"executor_id" binding:"required"`
-	Priority   int    `json:"priority"`
-	Weight     int    `json:"weight"`
-}
-
-func (r AssignExecutorReq) GetExecutorID() uint64 {
-	return cast.ToUint64(r.ExecutorID)
+	ExecutorName string `json:"executor_name" binding:"required"`
+	Priority     int    `json:"priority"`
+	Weight       int    `json:"weight"`
 }
 
 type UpdateExecutorAssignmentReq struct {
