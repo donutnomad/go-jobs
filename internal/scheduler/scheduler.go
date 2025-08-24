@@ -170,46 +170,68 @@ func (s *Scheduler) Stop() error {
 
 // startEventSubscriber subscribes to Redis events and processes them only when leader.
 func (s *Scheduler) startEventSubscriber() {
-	if s.rdb == nil {
-		s.logger.Warn("redis client nil, event subscriber not started")
-		return
-	}
-	s.sub = s.rdb.Subscribe(context.Background(), redisChannel)
-	ch := s.sub.Channel()
+    if s.rdb == nil {
+        s.logger.Warn("redis client nil, event subscriber not started")
+        return
+    }
+    s.wg.Add(1)
+    go func() {
+        defer s.wg.Done()
+        backoff := 1 * time.Second
+        for {
+            // establish subscription
+            sub := s.rdb.Subscribe(context.Background(), redisChannel)
+            s.sub = sub
+            ch := sub.Channel()
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		for {
-			select {
-			case msg, ok := <-ch:
-				if !ok {
-					return
-				}
-				fmt.Println("娃哈哈，收到了事件了哦哦哦:", msg.Payload, s.IsLeader())
-				var ev RedisEvent
-				if err := json.Unmarshal([]byte(msg.Payload), &ev); err != nil {
-					s.logger.Error("failed to unmarshal event", zap.Error(err))
-					continue
-				}
-				if !s.IsLeader() {
-					// Only leader processes events
-					continue
-				}
-				s.handleEvent(ev)
-			case <-s.stopCh:
-				return
-			}
-		}
-	}()
+            // consume loop
+            for {
+                select {
+                case msg, ok := <-ch:
+                    if !ok {
+                        // channel closed (network or server side) -> reconnect
+                        goto reconnect
+                    }
+                    var ev RedisEvent
+                    if err := json.Unmarshal([]byte(msg.Payload), &ev); err != nil {
+                        s.logger.Error("failed to unmarshal event", zap.Error(err))
+                        continue
+                    }
+                    if !s.IsLeader() {
+                        // Only leader processes events
+                        continue
+                    }
+                    s.handleEvent(ev)
+                case <-s.stopCh:
+                    _ = sub.Close()
+                    return
+                }
+            }
+
+        reconnect:
+            _ = sub.Close()
+            // wait then retry unless stopping
+            select {
+            case <-time.After(backoff):
+                if backoff < 30*time.Second {
+                    backoff *= 2
+                }
+            case <-s.stopCh:
+                return
+            }
+        }
+    }()
 }
 
 func (s *Scheduler) handleEvent(ev RedisEvent) {
-	switch ev.Type {
-	case EventSubmitNewTask:
-		if err := s.ScheduleNow(ev.TaskID, ev.Parameters); err != nil {
-			s.logger.Error("failed to schedule now", zap.Error(err))
-		}
+    if !s.IsLeader() {
+        return
+    }
+    switch ev.Type {
+    case EventSubmitNewTask:
+        if err := s.ScheduleNow(ev.TaskID, ev.Parameters); err != nil {
+            s.logger.Error("failed to schedule now", zap.Error(err))
+        }
 	case EventReloadTasks:
 		if err := s.ReloadTasks(); err != nil {
 			s.logger.Error("failed to reload tasks", zap.Error(err))
@@ -302,17 +324,18 @@ func (s *Scheduler) tryBecomeLeader() {
 			// 启动cron调度器
 			s.cron.Start()
 		}
-	} else {
-		// 续约锁
-		if err := s.locker.Renew(ctx); err != nil {
-			s.logger.Error("failed to renew leader lock", zap.Error(err))
-			s.setLeader(false)
-			s.updateInstanceStatus(false)
+    } else {
+        // 续约锁
+        if err := s.locker.Renew(ctx); err != nil {
+            s.logger.Error("failed to renew leader lock", zap.Error(err))
+            s.setLeader(false)
+            s.updateInstanceStatus(false)
 
-			// 停止cron调度器
-			s.cron.Stop()
-		}
-	}
+            // 停止cron调度器
+            stopCtx := s.cron.Stop()
+            <-stopCtx.Done()
+        }
+    }
 }
 
 // updateInstanceStatus 更新实例状态
@@ -356,10 +379,12 @@ func (s *Scheduler) loadAndScheduleTasks() error {
 	}
 
 	// 为每个任务添加cron调度
-	for _, t := range tasks {
-		entryID, err := s.cron.AddFunc(t.CronExpression, func() {
-			s.scheduleTask(t)
-		})
+    for _, t := range tasks {
+        // capture loop variable for closure safety
+        tt := t
+        entryID, err := s.cron.AddFunc(tt.CronExpression, func() {
+            s.scheduleTask(tt)
+        })
 
 		if err != nil {
 			s.logger.Error("failed to add cron job",
@@ -384,7 +409,11 @@ func (s *Scheduler) loadAndScheduleTasks() error {
 
 // ReloadTasks 重新加载和调度任务，用于暂停/恢复功能
 func (s *Scheduler) ReloadTasks() error {
-	return s.loadAndScheduleTasks()
+    if !s.IsLeader() {
+        s.logger.Debug("ignore reload tasks: not leader")
+        return ErrNotLeader
+    }
+    return s.loadAndScheduleTasks()
 }
 
 func (s *Scheduler) CancelExecutionTimeout(executionID uint64) {
@@ -392,11 +421,16 @@ func (s *Scheduler) CancelExecutionTimeout(executionID uint64) {
 }
 
 func (s *Scheduler) ScheduleNow(taskID uint64, parameters map[string]any) error {
-	execution_ := execution.TaskExecution{
-		ID:            uint64(idgen.NextId()),
-		TaskID:        taskID,
-		ScheduledTime: time.Now(),
-		Status:        execution.ExecutionStatusPending,
+    if !s.IsLeader() {
+        s.logger.Debug("ignore schedule now: not leader",
+            zap.Uint64("task_id", taskID))
+        return ErrNotLeader
+    }
+    execution_ := execution.TaskExecution{
+        ID:            uint64(idgen.NextId()),
+        TaskID:        taskID,
+        ScheduledTime: time.Now(),
+        Status:        execution.ExecutionStatusPending,
 	}
 	ctx := context.Background()
 	err := s.executionRepo.Create(ctx, &execution_)

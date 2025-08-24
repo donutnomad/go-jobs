@@ -1,13 +1,14 @@
 package scheduler
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"sync"
-	"time"
+    "bytes"
+    "context"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "net/http"
+    "sync"
+    "time"
 
 	"github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/biz/executor"
@@ -19,10 +20,10 @@ import (
 
 // CircuitBreaker 简单的熔断器实现
 type CircuitBreaker struct {
-	mu              sync.RWMutex
-	failureCount    int
-	successCount    int
-	lastFailureTime time.Time
+    mu              sync.RWMutex
+    failureCount    int
+    successCount    int
+    lastFailureTime time.Time
 	state           string // "closed", "open", "half-open"
 	threshold       int
 	timeout         time.Duration
@@ -40,39 +41,50 @@ func NewCircuitBreaker() *CircuitBreaker {
 }
 
 // Call 通过熔断器调用函数
+var ErrCircuitOpen = errors.New("circuit breaker is open")
+
 func (cb *CircuitBreaker) Call(fn func() error) error {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
+    // Fast path: check state under lock
+    cb.mu.Lock()
+    switch cb.state {
+    case "open":
+        if time.Since(cb.lastFailureTime) > cb.resetTimeout {
+            // Move to half-open; allow a trial call
+            cb.state = "half-open"
+            cb.failureCount = 0
+            cb.successCount = 0
+        } else {
+            cb.mu.Unlock()
+            return ErrCircuitOpen
+        }
+    }
+    cb.mu.Unlock()
 
-	switch cb.state {
-	case "open":
-		if time.Since(cb.lastFailureTime) > cb.resetTimeout {
-			cb.state = "half-open"
-			cb.failureCount = 0
-			cb.successCount = 0
-		} else {
-			return fmt.Errorf("circuit breaker is open")
-		}
-	}
+    // Execute the protected function outside the lock
+    err := fn()
 
-	err := fn()
-	if err != nil {
-		cb.failureCount++
-		cb.lastFailureTime = time.Now()
-		if cb.failureCount >= cb.threshold {
-			cb.state = "open"
-		}
-		return err
-	}
+    // Update breaker state based on result
+    cb.mu.Lock()
+    defer cb.mu.Unlock()
 
-	if cb.state == "half-open" {
-		cb.successCount++
-		if cb.successCount >= 2 {
-			cb.state = "closed"
-			cb.failureCount = 0
-		}
-	}
-	return nil
+    if err != nil {
+        cb.failureCount++
+        cb.lastFailureTime = time.Now()
+        if cb.state == "half-open" || cb.failureCount >= cb.threshold {
+            cb.state = "open"
+        }
+        return err
+    }
+
+    if cb.state == "half-open" {
+        cb.successCount++
+        if cb.successCount >= 2 { // promote to closed after consecutive successes
+            cb.state = "closed"
+            cb.failureCount = 0
+            cb.successCount = 0
+        }
+    }
+    return nil
 }
 
 // TaskRunner 任务执行器
@@ -103,6 +115,25 @@ type TaskRunner struct {
 type taskJob struct {
 	task      *task.Task
 	execution *execution.TaskExecution
+}
+
+// submit pushes a prepared task+execution to the queue.
+// Non-blocking: if the queue is full, marks execution as failed.
+func (r *TaskRunner) submit(tsk *task.Task, exec *execution.TaskExecution) {
+	select {
+	case r.taskCh <- &taskJob{task: tsk, execution: exec}:
+		r.logger.Debug("task submitted",
+			zap.Uint64("task_id", tsk.ID),
+			zap.Uint64("execution_id", exec.ID))
+	default:
+		r.logger.Warn("task queue is full, dropping task",
+			zap.Uint64("task_id", tsk.ID),
+			zap.Uint64("execution_id", exec.ID))
+		// Use domain method to mark failed when queue is full
+		ctx := context.Background()
+		exec.MarkFailed("Task queue is full")
+		_ = r.executionRepo.Save(ctx, exec)
+	}
 }
 
 type TaskRunnerConfig struct {
@@ -180,12 +211,8 @@ func (r *TaskRunner) Submit(taskId uint64, parameters map[string]any, executionI
 			zap.Error(err))
 		return
 	}
-	if tsk.Parameters == nil {
-		tsk.Parameters = make(map[string]any)
-	}
-	for k, v := range parameters {
-		tsk.Parameters[k] = v
-	}
+	// Merge external parameters into the task entity
+	tsk.MergeParameters(parameters)
 
 	select {
 	case r.taskCh <- &taskJob{task: tsk, execution: record}:
@@ -197,13 +224,10 @@ func (r *TaskRunner) Submit(taskId uint64, parameters map[string]any, executionI
 			zap.Uint64("task_id", tsk.ID),
 			zap.Uint64("execution_id", record.ID))
 
-		// 更新执行状态为失败
+		// 使用领域方法更新为失败
 		ctx := context.Background()
-		record.Status = execution.ExecutionStatusFailed
-		record.Logs = "Task queue is full"
-		now := time.Now()
-		record.EndTime = &now
-		r.executionRepo.Save(ctx, record)
+		record.MarkFailed("Task queue is full")
+		_ = r.executionRepo.Save(ctx, record)
 	}
 }
 
@@ -224,7 +248,6 @@ func (r *TaskRunner) worker(id int) {
 	}
 }
 
-// executeTask 执行任务（使用循环替代递归，避免栈溢出）
 func (r *TaskRunner) executeTask(tsk *task.Task, exec *execution.TaskExecution) {
 	ctx := context.Background()
 
@@ -233,10 +256,8 @@ func (r *TaskRunner) executeTask(tsk *task.Task, exec *execution.TaskExecution) 
 		zap.String("task_name", tsk.Name),
 		zap.Uint64("execution_id", exec.ID))
 
-	// 更新执行状态为运行中
-	now := time.Now()
-	exec.Status = execution.ExecutionStatusRunning
-	exec.StartTime = &now
+	// 更新执行状态为运行中（封装为领域方法）
+	exec.StartNow()
 	if err := r.executionRepo.Save(ctx, exec); err != nil {
 		r.logger.Error("failed to update execution status",
 			zap.Uint64("execution_id", exec.ID),
@@ -266,7 +287,7 @@ func (r *TaskRunner) executeTask(tsk *task.Task, exec *execution.TaskExecution) 
 		}
 
 		// 获取健康的执行器
-		executors, err := r.executorRepo.GetHealthyExecutorsForTask(ctx, tsk.ID)
+		executors, err := r.executorRepo.GetHealthyExecutorsByTask(ctx, tsk.ID)
 		if err != nil || len(executors) == 0 {
 			lastErr = fmt.Errorf("no healthy executors available")
 			continue
@@ -279,9 +300,8 @@ func (r *TaskRunner) executeTask(tsk *task.Task, exec *execution.TaskExecution) 
 			continue
 		}
 
-		// 更新执行记录中的执行器ID
-		exec.ExecutorID = selectedExecutor.ID
-		exec.RetryCount = attempt
+		// 更新执行记录中的执行器ID（封装为领域方法）
+		exec.AssignExecutor(selectedExecutor.ID, attempt)
 		if err := r.executionRepo.Save(ctx, exec); err != nil {
 			r.logger.Error("failed to update executor id",
 				zap.Uint64("execution_id", exec.ID),
@@ -352,13 +372,18 @@ func (r *TaskRunner) ResetBreaker(executorID uint64) {
 
 // callExecutor 调用执行器（带熔断器保护）
 func (r *TaskRunner) callExecutor(ctx context.Context, task *task.Task, execution *execution.TaskExecution, exec *executor.Executor) error {
-	// 获取该执行器的熔断器
-	breaker := r.getOrCreateBreaker(exec.ID)
+    // 获取该执行器的熔断器
+    breaker := r.getOrCreateBreaker(exec.ID)
 
-	// 通过熔断器调用
-	return breaker.Call(func() error {
-		// 构建请求
-		url := exec.GetExecURL()
+    // 通过熔断器调用
+    return breaker.Call(func() error {
+        // 构建请求
+        url := exec.GetExecURL()
+
+        // Derive a per-request timeout from task settings with sane bounds
+        reqTimeout := r.requestTimeoutForTask(task)
+        ctxReq, cancel := context.WithTimeout(ctx, reqTimeout)
+        defer cancel()
 
 		payload := map[string]any{
 			"execution_id": cast.ToString(execution.ID),
@@ -373,10 +398,10 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *task.Task, executio
 			return fmt.Errorf("failed to marshal payload: %w", err)
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(jsonData))
-		if err != nil {
-			return fmt.Errorf("failed to create request: %w", err)
-		}
+        req, err := http.NewRequestWithContext(ctxReq, http.MethodPost, url, bytes.NewBuffer(jsonData))
+        if err != nil {
+            return fmt.Errorf("failed to create request: %w", err)
+        }
 
 		req.Header.Set("Content-Type", "application/json")
 
@@ -397,16 +422,34 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *task.Task, executio
 			zap.Uint64("executor_id", exec.ID))
 
 		return nil
-	})
+    })
+}
+
+// requestTimeoutForTask returns a reasonable HTTP request timeout derived from the task timeout.
+// It ensures a minimum of 1s and caps at 30s to avoid long hangs.
+func (r *TaskRunner) requestTimeoutForTask(t *task.Task) time.Duration {
+    const (
+        defaultTimeout = 10 * time.Second
+        maxTimeout     = 30 * time.Second
+        minTimeout     = 1 * time.Second
+    )
+    if t != nil && t.TimeoutSeconds > 0 {
+        d := time.Duration(t.TimeoutSeconds) * time.Second
+        if d < minTimeout {
+            return minTimeout
+        }
+        if d > maxTimeout {
+            return maxTimeout
+        }
+        return d
+    }
+    return defaultTimeout
 }
 
 // failExecution 标记执行失败
 func (r *TaskRunner) failExecution(exec *execution.TaskExecution, reason string) {
 	ctx := context.Background()
-	now := time.Now()
-	exec.Status = execution.ExecutionStatusFailed
-	exec.EndTime = &now
-	exec.Logs = reason
+	exec.MarkFailed(reason)
 
 	if err := r.executionRepo.Save(ctx, exec); err != nil {
 		r.logger.Error("failed to update execution status",
@@ -419,7 +462,6 @@ func (r *TaskRunner) failExecution(exec *execution.TaskExecution, reason string)
 		zap.String("reason", reason))
 }
 
-// scheduleTimeout 设置超时定时器（避免goroutine泄漏）
 func (r *TaskRunner) scheduleTimeout(executionID uint64, timeout time.Duration) {
 	r.timeoutMu.Lock()
 	defer r.timeoutMu.Unlock()
@@ -430,11 +472,9 @@ func (r *TaskRunner) scheduleTimeout(executionID uint64, timeout time.Duration) 
 	}
 
 	// 创建新的定时器
-	timer := time.AfterFunc(timeout, func() {
+	r.timeouts[executionID] = time.AfterFunc(timeout, func() {
 		r.handleTimeout(executionID)
 	})
-
-	r.timeouts[executionID] = timer
 }
 
 // CancelTimeout 取消超时定时器
@@ -464,21 +504,18 @@ func (r *TaskRunner) handleTimeout(executionID uint64) {
 			zap.Error(err))
 		return
 	}
+	if current.Status != execution.ExecutionStatusRunning {
+		return
+	}
 
 	// 如果仍在运行，标记为超时
-	if current.Status == execution.ExecutionStatusRunning {
-		now := time.Now()
-		current.Status = execution.ExecutionStatusTimeout
-		current.EndTime = &now
-		current.Logs = "Execution timeout"
-
-		if err := r.executionRepo.Save(ctx, current); err != nil {
-			r.logger.Error("failed to update execution status",
-				zap.Uint64("execution_id", executionID),
-				zap.Error(err))
-		}
-
-		r.logger.Warn("task execution timeout",
-			zap.Uint64("execution_id", executionID))
+	current.MarkTimeout()
+	if err := r.executionRepo.Save(ctx, current); err != nil {
+		r.logger.Error("failed to update execution status",
+			zap.Uint64("execution_id", executionID),
+			zap.Error(err))
 	}
+
+	r.logger.Warn("task execution timeout",
+		zap.Uint64("execution_id", executionID))
 }

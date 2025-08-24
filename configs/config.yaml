@@ -8,7 +8,7 @@ scheduler:
 health_check:
   enabled: true
   interval: 10s           # 从30秒缩短到10秒
-  timeout: 3s             # 从5秒缩短到3秒
+  timeout: 3s             # 健康检查单次超时，实际使用会裁剪到[1s,5s]，默认3s，最大5s
   failure_threshold: 2    # 从3次减少到2次
   recovery_threshold: 1   # 从2次减少到1次
 

@@ -41,6 +41,20 @@ func (t *Task) Resume() (*TaskPatch, error) {
 	return new(TaskPatch).WithStatus(t.Status), nil
 }
 
+// MergeParameters merges provided parameters into task's parameters map.
+// Initializes the map if nil.
+func (t *Task) MergeParameters(extra map[string]any) {
+    if extra == nil {
+        return
+    }
+    if t.Parameters == nil {
+        t.Parameters = make(map[string]any)
+    }
+    for k, v := range extra {
+        t.Parameters[k] = v
+    }
+}
+
 type TaskAssignment struct {
 	ID           uint64
 	CreatedAt    time.Time

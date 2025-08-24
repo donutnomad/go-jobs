@@ -30,17 +30,18 @@ type HealthChecker struct {
 }
 
 func NewHealthChecker(logger *zap.Logger, config config.HealthCheckConfig, taskRunner ITaskRunner, executorRepo executor.Repo) *HealthChecker {
-	return &HealthChecker{
-		logger: logger,
-		config: config,
-		httpClient: &http.Client{
-			Timeout: config.Timeout,
-		},
-		stopCh:        make(chan struct{}),
-		taskRunner:    taskRunner,
-		executorRepo:  executorRepo,
-		successCounts: make(map[uint64]int),
-	}
+    hc := &HealthChecker{
+        logger: logger,
+        config: config,
+        stopCh:        make(chan struct{}),
+        taskRunner:    taskRunner,
+        executorRepo:  executorRepo,
+        successCounts: make(map[uint64]int),
+    }
+    // Use a short per-request timeout for health checks (cap at 5s, default 3s)
+    t := hc.requestTimeout()
+    hc.httpClient = &http.Client{Timeout: t}
+    return hc
 }
 
 func (h *HealthChecker) Start() {
@@ -119,8 +120,9 @@ func (h *HealthChecker) maxConcurrentChecks() int {
 }
 
 func (h *HealthChecker) checkExecutor(exe *executor.Executor) {
-	ctx, cancel := context.WithTimeout(context.Background(), h.config.Timeout)
-	defer cancel()
+    // Always use a short timeout for health checks
+    ctx, cancel := context.WithTimeout(context.Background(), h.requestTimeout())
+    defer cancel()
 
 	isHealthy := h.ping(ctx, exe)
 
@@ -147,6 +149,27 @@ func (h *HealthChecker) checkExecutor(exe *executor.Executor) {
 	}
 
 	h.update(exe.ID, exe.ExportPatch())
+}
+
+// requestTimeout returns a short timeout for health checks.
+// Caps at 5s, defaults to 3s, and enforces a minimum of 1s.
+func (h *HealthChecker) requestTimeout() time.Duration {
+    const (
+        def = 3 * time.Second
+        capT = 5 * time.Second
+        minT = 1 * time.Second
+    )
+    t := h.config.Timeout
+    if t <= 0 {
+        t = def
+    }
+    if t > capT {
+        t = capT
+    }
+    if t < minT {
+        t = minT
+    }
+    return t
 }
 
 // incSuccess increments and returns the consecutive success count for an executor.

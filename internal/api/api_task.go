@@ -190,11 +190,15 @@ func (t *TaskAPI) TriggerTask(ctx *gin.Context, id uint64, req TriggerTaskReques
 	} else if task_ == nil {
 		return "", errors.New("task not found")
 	}
-	err = t.emitter.SubmitNewTask(id, req.Parameters)
-	if err != nil {
-		return "", errors.New("failed to submit task to emitter: " + err.Error())
-	}
-	return "ok", nil
+    err = t.emitter.SubmitNewTask(id, req.Parameters)
+    if err != nil {
+        if errors.Is(err, scheduler.ErrNotLeader) {
+            // Not leader: accept request but inform client this instance won't process it
+            return "not leader: request accepted; will be handled by leader", nil
+        }
+        return "", errors.New("failed to submit task to emitter: " + err.Error())
+    }
+    return "ok", nil
 }
 
 func (t *TaskAPI) Pause(ctx *gin.Context, id uint64) (string, error) {
@@ -252,7 +256,7 @@ func (t *TaskAPI) AssignExecutor(ctx *gin.Context, id uint64, req AssignExecutor
 }
 
 func (t *TaskAPI) UpdateExecutorAssignment(ctx *gin.Context, id uint64, executorID uint64, req UpdateExecutorAssignmentReq) (*TaskAssignmentResp, error) {
-	executor_, err := t.repo.GetByID(ctx, executorID)
+	executor_, err := t.executorRepo.GetByID(ctx, executorID)
 	if err != nil {
 		return nil, err
 	} else if executor_ == nil {
@@ -267,7 +271,7 @@ func (t *TaskAPI) UpdateExecutorAssignment(ctx *gin.Context, id uint64, executor
 }
 
 func (t *TaskAPI) UnassignExecutor(ctx *gin.Context, id uint64, executorID uint64) (string, error) {
-	executor_, err := t.repo.GetByID(ctx, executorID)
+	executor_, err := t.executorRepo.GetByID(ctx, executorID)
 	if err != nil {
 		return "", err
 	} else if executor_ == nil {

@@ -19,6 +19,6 @@ type Repo interface {
 
 	FindByStatus(ctx context.Context, status []ExecutorStatus) ([]*Executor, error)
 
-	// GetHealthyExecutorsForTask 获取任务的健康执行器
-	GetHealthyExecutorsForTask(ctx context.Context, taskID uint64) ([]*Executor, error)
+	// GetHealthyExecutorsByTask 获取任务的健康执行器
+	GetHealthyExecutorsByTask(ctx context.Context, taskID uint64) ([]*Executor, error)
 }
