@@ -19,10 +19,7 @@ func (s *RandomStrategy) Select(ctx context.Context, taskID uint64, executors []
 	if len(executors) == 0 {
 		return nil, fmt.Errorf("no available executors")
 	}
-
-	// 随机选择一个执行器
-	index := rand.Intn(len(executors))
-	return executors[index], nil
+	return executors[rand.Intn(len(executors))], nil
 }
 
 func (s *RandomStrategy) Name() string {

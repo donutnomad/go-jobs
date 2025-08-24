@@ -7,7 +7,6 @@ import (
 
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/load_balance"
-	"github.com/yitter/idgenerator-go/idgen"
 )
 
 // RoundRobinStrategy 轮询策略
@@ -38,23 +37,19 @@ func (s *RoundRobinStrategy) Select(ctx context.Context, taskID uint64, executor
 
 	if state == nil {
 		// 创建新状态
-		state = &load_balance.LoadBalanceState{
-			ID:              uint64(idgen.NextId()),
-			TaskID:          taskID,
-			RoundRobinIndex: 0,
-		}
+		state = load_balance.NewLoadBalanceStateForTask(taskID)
 		if err := s.loadBalanceRepo.Create(ctx, state); err != nil {
 			return nil, fmt.Errorf("failed to create load balance state: %w", err)
 		}
 	}
 
 	// 选择下一个执行器
-	index := state.RoundRobinIndex % len(executors)
+	index := state.CurrentIndex(len(executors))
 	selected := executors[index]
 
 	// 更新索引
-	state.RoundRobinIndex = (state.RoundRobinIndex + 1) % len(executors)
-	state.LastExecutorID = &selected.ID
+	state.AdvanceRoundRobin(len(executors))
+	state.SetLastExecutorID(selected.ID)
 	if err := s.loadBalanceRepo.Save(ctx, state); err != nil {
 		return nil, fmt.Errorf("failed to update load balance state: %w", err)
 	}

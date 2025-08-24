@@ -18,16 +18,19 @@ type Executor struct {
 	LastHealthCheck     *time.Time
 	HealthCheckFailures int
 	Metadata            map[string]any
+
+	// aggregated patch (domain-level), not persisted directly
+	patch ExecutorPatch
 }
 
 // Health check helpers encapsulate state transitions to keep domain logic
 // within the entity and make callers simpler and safer.
 
 func (e *Executor) GetLastHealthCheck() int64 {
-    if e.LastHealthCheck == nil {
-        return 0
-    }
-    return e.LastHealthCheck.Unix()
+	if e.LastHealthCheck == nil {
+		return 0
+	}
+	return e.LastHealthCheck.Unix()
 }
 
 func (e *Executor) GetHealthCheckURL() string {
@@ -45,29 +48,48 @@ func (e *Executor) GetExecURL() string {
 	return fmt.Sprintf("%s/execute", e.BaseURL)
 }
 
-func (e *Executor) SetStatus(status ExecutorStatus) *ExecutorPatch {
-	e.Status = status
+// --- aggregated patch handling ---
 
-	patch := NewExecutorPatch()
-	patch.WithStatus(status)
-
-	if status == ExecutorStatusOnline {
-		patch.With(e.SetToOnline())
-	}
-
-	return patch
+// ClearPatch resets current aggregated patch changes.
+func (e *Executor) ClearPatch() *Executor {
+	e.patch = ExecutorPatch{}
+	return e
 }
 
-func (e *Executor) SetToOnline() *ExecutorPatch {
-    e.Status = ExecutorStatusOnline
-    e.IsHealthy = true
-    e.HealthCheckFailures = 0
-    return NewExecutorPatch().WithStatus(e.Status).WithIsHealthy(e.IsHealthy).WithHealthCheckFailures(e.HealthCheckFailures)
+// ExportPatch builds a public patch object from internal changes.
+// Returns nil if there are no changes.
+func (e *Executor) ExportPatch() *ExecutorPatch { return &e.patch }
+
+func (e *Executor) SetStatus(status ExecutorStatus) *Executor {
+	e.Status = status
+	e.patch.WithStatus(e.Status)
+
+	if status == ExecutorStatusOnline {
+		e.SetToOnline()
+	}
+	return e
+}
+
+func (e *Executor) SetToOnline() *Executor {
+	e.Status = ExecutorStatusOnline
+	e.IsHealthy = true
+	e.HealthCheckFailures = 0
+	e.patch.WithStatus(e.Status).WithIsHealthy(e.IsHealthy).WithHealthCheckFailures(e.HealthCheckFailures)
+	return e
 }
 
 // UpdateLastHealthCheck sets the last health check time.
 func (e *Executor) UpdateLastHealthCheck(t time.Time) {
-    e.LastHealthCheck = &t
+	e.LastHealthCheck = &t
+	e.patch.WithLastHealthCheck(t)
+}
+
+// ResetHealthCheckFailures resets the failure counter without changing health/status.
+func (e *Executor) ResetHealthCheckFailures() {
+	if e.HealthCheckFailures != 0 {
+		e.HealthCheckFailures = 0
+		e.patch.WithHealthCheckFailures(e.HealthCheckFailures)
+	}
 }
 
 // OnHealthCheckSuccess applies success semantics:
@@ -76,24 +98,27 @@ func (e *Executor) UpdateLastHealthCheck(t time.Time) {
 // - if previously offline, switch to online
 // Returns two flags indicating whether it recovered from unhealthy and/or from offline.
 func (e *Executor) OnHealthCheckSuccess() (recoveredHealthy bool, recoveredOnline bool) {
-    // Reset failures on success
-    if e.HealthCheckFailures != 0 {
-        e.HealthCheckFailures = 0
-    }
+	// Reset failures on success
+	if e.HealthCheckFailures != 0 {
+		e.HealthCheckFailures = 0
+		e.patch.WithHealthCheckFailures(e.HealthCheckFailures)
+	}
 
-    // Recover health if needed
-    if !e.IsHealthy {
-        e.IsHealthy = true
-        recoveredHealthy = true
-    }
+	// Recover health if needed
+	if !e.IsHealthy {
+		e.IsHealthy = true
+		recoveredHealthy = true
+		e.patch.WithIsHealthy(e.IsHealthy)
+	}
 
-    // If previously offline, recover to online
-    if e.Status == ExecutorStatusOffline {
-        e.Status = ExecutorStatusOnline
-        recoveredOnline = true
-    }
+	// If previously offline, recover to online
+	if e.Status == ExecutorStatusOffline {
+		e.Status = ExecutorStatusOnline
+		recoveredOnline = true
+		e.patch.WithStatus(e.Status)
+	}
 
-    return
+	return
 }
 
 // OnHealthCheckFailure applies failure semantics:
@@ -101,21 +126,55 @@ func (e *Executor) OnHealthCheckSuccess() (recoveredHealthy bool, recoveredOnlin
 // - otherwise increment failures; if reaching threshold, mark unhealthy and offline
 // Returns flags: alreadyOffline, becameUnhealthy, becameOffline.
 func (e *Executor) OnHealthCheckFailure(threshold int) (alreadyOffline bool, becameUnhealthy bool, becameOffline bool) {
-    if e.Status == ExecutorStatusOffline {
-        return true, false, false
+	if e.Status == ExecutorStatusOffline {
+		return true, false, false
+	}
+
+	e.HealthCheckFailures++
+	e.patch.WithHealthCheckFailures(e.HealthCheckFailures)
+
+	if e.HealthCheckFailures >= threshold {
+		if e.IsHealthy {
+			e.IsHealthy = false
+			becameUnhealthy = true
+			e.patch.WithIsHealthy(e.IsHealthy)
+		}
+		if e.Status != ExecutorStatusOffline {
+			e.Status = ExecutorStatusOffline
+			becameOffline = true
+			e.patch.WithStatus(e.Status)
+		}
+	}
+
+	return
+}
+
+// TryRecoverAfterSuccess applies success semantics and, if the executor needs
+// recovery, recovers after reaching the given consecutive success threshold.
+// It always resets failure counter on success. Returns whether it recovered
+// from unhealthy and/or from offline, plus a flag indicating any recovery.
+func (e *Executor) TryRecoverAfterSuccess(consecutiveSuccess int, recoveryThreshold int) (recoveredHealthy bool, recoveredOnline bool, didRecover bool) {
+    // Always reset failures on a success event
+    if e.HealthCheckFailures != 0 {
+        e.HealthCheckFailures = 0
+        e.patch.WithHealthCheckFailures(e.HealthCheckFailures)
     }
 
-    e.HealthCheckFailures++
+    // Determine if recovery is needed
+    needsRecovery := !e.IsHealthy || e.Status == ExecutorStatusOffline
+    if !needsRecovery {
+        return false, false, false
+    }
 
-    if e.HealthCheckFailures >= threshold {
-        if e.IsHealthy {
-            e.IsHealthy = false
-            becameUnhealthy = true
-        }
-        if e.Status != ExecutorStatusOffline {
-            e.Status = ExecutorStatusOffline
-            becameOffline = true
-        }
+    // Normalize threshold: minimum 1
+    if recoveryThreshold <= 1 {
+        recoveryThreshold = 1
+    }
+
+    if consecutiveSuccess >= recoveryThreshold {
+        // Perform actual recovery (updates patch internally)
+        recoveredHealthy, recoveredOnline = e.OnHealthCheckSuccess()
+        didRecover = recoveredHealthy || recoveredOnline
     }
 
     return

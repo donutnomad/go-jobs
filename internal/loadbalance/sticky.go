@@ -7,7 +7,6 @@ import (
 
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/load_balance"
-	"github.com/yitter/idgenerator-go/idgen"
 )
 
 // StickyStrategy 粘性策略 - 始终选择同一个执行器
@@ -39,12 +38,9 @@ func (s *StickyStrategy) Select(ctx context.Context, taskID uint64, executors []
 	if state == nil {
 		// 创建新状态，选择第一个执行器作为粘性执行器
 		selected := executors[0]
-		state = &load_balance.LoadBalanceState{
-			ID:               uint64(idgen.NextId()),
-			TaskID:           taskID,
-			StickyExecutorID: &selected.ID,
-			LastExecutorID:   &selected.ID,
-		}
+		state = load_balance.NewLoadBalanceStateForTask(taskID)
+		state.SetStickyExecutorID(selected.ID)
+		state.SetLastExecutorID(selected.ID)
 		if err := s.loadBalanceRepo.Create(ctx, state); err != nil {
 			return nil, fmt.Errorf("failed to create load balance state: %w", err)
 		}
@@ -57,7 +53,7 @@ func (s *StickyStrategy) Select(ctx context.Context, taskID uint64, executors []
 		for _, exec := range executors {
 			if exec.ID == *state.StickyExecutorID {
 				// 找到粘性执行器
-				state.LastExecutorID = &exec.ID
+				state.SetLastExecutorID(exec.ID)
 				if err := s.loadBalanceRepo.Save(ctx, state); err != nil {
 					return nil, fmt.Errorf("failed to update load balance state: %w", err)
 				}
@@ -68,8 +64,8 @@ func (s *StickyStrategy) Select(ctx context.Context, taskID uint64, executors []
 
 	// 粘性执行器不可用，选择新的粘性执行器
 	selected := executors[0]
-	state.StickyExecutorID = &selected.ID
-	state.LastExecutorID = &selected.ID
+	state.SetStickyExecutorID(selected.ID)
+	state.SetLastExecutorID(selected.ID)
 	if err := s.loadBalanceRepo.Save(ctx, state); err != nil {
 		return nil, fmt.Errorf("failed to update load balance state: %w", err)
 	}

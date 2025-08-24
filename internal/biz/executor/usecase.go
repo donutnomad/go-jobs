@@ -35,7 +35,7 @@ func (u *Usecase) UpdateStatus(ctx context.Context, id uint64, status ExecutorSt
 	if err != nil {
 		return nil, err
 	}
-	patch := exec.SetStatus(status)
+	patch := exec.ClearPatch().SetStatus(status).ExportPatch()
 	err = u.executorRepo.Update(ctx, id, patch)
 	if err != nil {
 		return nil, err

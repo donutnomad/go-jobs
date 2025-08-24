@@ -55,9 +55,9 @@ func New(cfg Config) (*Storage, error) {
 
 	// 自动迁移 - 调整顺序确保被引用的表先创建
 	if err := db.AutoMigrate(
-		&taskrepo.TaskPo{},                           // 先创建tasks表
-		&taskrepo.TaskAssignmentPo{},                 // 然后创建task_executors表(引用了tasks和executors)
-		&executionrepo.TaskExecution{},               // 再创建task_executions表(引用了tasks和executors)
+		&taskrepo.TaskPo{},
+		&taskrepo.TaskAssignmentPo{},
+		&executionrepo.TaskExecution{},
 		&loadbalancerepo.LoadBalanceStatePO{},        // 负载均衡状态表
 		&schedulerinstancerepo.SchedulerInstancePO{}, // 调度器实例表
 		&executorrepo.Executor{},

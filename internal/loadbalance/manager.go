@@ -10,12 +10,20 @@ import (
 	"github.com/jobs/scheduler/internal/biz/task"
 )
 
+// Strategy 负载均衡策略接口
+type Strategy interface {
+	// Select 选择一个执行器
+	Select(ctx context.Context, taskID uint64, executors []*executor.Executor) (*executor.Executor, error)
+	// Name 策略名称
+	Name() string
+}
+
 // Manager 负载均衡管理器
 type Manager struct {
-	strategies         map[task.LoadBalanceStrategy]Strategy
-	loadBalanceRepo    load_balance.Repo
-	taskRepo          task.Repo
-	executionRepo     execution.Repo
+	strategies      map[task.LoadBalanceStrategy]Strategy
+	loadBalanceRepo load_balance.Repo
+	taskRepo        task.Repo
+	executionRepo   execution.Repo
 }
 
 // NewManager 创建负载均衡管理器

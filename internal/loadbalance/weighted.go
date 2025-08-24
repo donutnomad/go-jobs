@@ -8,7 +8,6 @@ import (
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/load_balance"
 	"github.com/jobs/scheduler/internal/biz/task"
-	"github.com/yitter/idgenerator-go/idgen"
 )
 
 // WeightedRoundRobinStrategy 加权轮询策略
@@ -66,18 +65,14 @@ func (s *WeightedRoundRobinStrategy) Select(ctx context.Context, taskID uint64, 
 	// 获取或创建负载均衡状态
 	state, err := s.loadBalanceRepo.GetByTaskID(ctx, taskID)
 	if err != nil {
-		state = &load_balance.LoadBalanceState{
-			ID:              uint64(idgen.NextId()),
-			TaskID:          taskID,
-			RoundRobinIndex: 0,
-		}
+		state = load_balance.NewLoadBalanceStateForTask(taskID)
 		if err := s.loadBalanceRepo.Create(ctx, state); err != nil {
 			return nil, fmt.Errorf("failed to create load balance state: %w", err)
 		}
 	}
 
 	// 基于权重选择执行器
-	targetWeight := state.RoundRobinIndex % totalWeight
+	targetWeight := state.CurrentIndex(totalWeight)
 	currentWeight := 0
 
 	for _, exec := range executors {
@@ -88,8 +83,8 @@ func (s *WeightedRoundRobinStrategy) Select(ctx context.Context, taskID uint64, 
 		currentWeight += weight
 		if currentWeight > targetWeight {
 			// 更新状态
-			state.RoundRobinIndex = (state.RoundRobinIndex + 1) % totalWeight
-			state.LastExecutorID = &exec.ID
+			state.AdvanceRoundRobin(totalWeight)
+			state.SetLastExecutorID(exec.ID)
 			if err := s.loadBalanceRepo.Save(ctx, state); err != nil {
 				return nil, fmt.Errorf("failed to update load balance state: %w", err)
 			}
@@ -105,23 +100,18 @@ func (s *WeightedRoundRobinStrategy) selectDefault(ctx context.Context, taskID u
 	// 获取或创建负载均衡状态
 	state, err := s.loadBalanceRepo.GetByTaskID(ctx, taskID)
 	if err != nil {
-		state = &load_balance.LoadBalanceState{
-			ID:              uint64(idgen.NextId()),
-			TaskID:          taskID,
-			RoundRobinIndex: 0,
-		}
+		state = load_balance.NewLoadBalanceStateForTask(taskID)
 		if err := s.loadBalanceRepo.Create(ctx, state); err != nil {
 			return nil, fmt.Errorf("failed to create load balance state: %w", err)
 		}
 	}
 
 	// 选择下一个执行器
-	index := state.RoundRobinIndex % len(executors)
-	selected := executors[index]
+	selected := executors[state.CurrentIndex(len(executors))]
 
 	// 更新索引
-	state.RoundRobinIndex = (state.RoundRobinIndex + 1) % len(executors)
-	state.LastExecutorID = &selected.ID
+	state.AdvanceRoundRobin(len(executors))
+	state.SetLastExecutorID(selected.ID)
 	if err := s.loadBalanceRepo.Save(ctx, state); err != nil {
 		return nil, fmt.Errorf("failed to update load balance state: %w", err)
 	}

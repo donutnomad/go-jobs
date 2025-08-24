@@ -6,9 +6,13 @@ import (
 	"sync"
 	"time"
 
+	"runtime"
+
 	"github.com/jobs/scheduler/internal/biz/executor"
+	"github.com/jobs/scheduler/internal/utils/loExt"
 	"github.com/jobs/scheduler/pkg/config"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 type HealthChecker struct {
@@ -19,6 +23,10 @@ type HealthChecker struct {
 	wg           sync.WaitGroup
 	taskRunner   ITaskRunner // 添加TaskRunner引用
 	executorRepo executor.Repo
+
+	// recovery tracking: consecutive success counts per executor
+	successCounts map[uint64]int
+	scMu          sync.Mutex
 }
 
 func NewHealthChecker(logger *zap.Logger, config config.HealthCheckConfig, taskRunner ITaskRunner, executorRepo executor.Repo) *HealthChecker {
@@ -28,9 +36,10 @@ func NewHealthChecker(logger *zap.Logger, config config.HealthCheckConfig, taskR
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
 		},
-		stopCh:       make(chan struct{}),
-		taskRunner:   taskRunner,
-		executorRepo: executorRepo,
+		stopCh:        make(chan struct{}),
+		taskRunner:    taskRunner,
+		executorRepo:  executorRepo,
+		successCounts: make(map[uint64]int),
 	}
 }
 
@@ -70,88 +79,89 @@ func (h *HealthChecker) run() {
 }
 
 func (h *HealthChecker) checkAll() {
-	executors, err := h.executorRepo.FindByStatus(context.Background(), []executor.ExecutorStatus{
-		executor.ExecutorStatusOnline,
-		executor.ExecutorStatusOffline,
-	})
+	executors, err := h.executorRepo.FindByStatus(context.Background(),
+		loExt.DefSlice(
+			executor.ExecutorStatusOnline, executor.ExecutorStatusOffline,
+		))
 	if err != nil {
 		h.logger.Error("failed to get executors for health check", zap.Error(err))
 		return
 	}
 
-	// 并发检查所有执行器
-	var wg sync.WaitGroup
-	for _, exec := range executors {
-		wg.Add(1)
-		go func(exec *executor.Executor) {
-			defer wg.Done()
-			h.checkExecutor(exec)
-		}(exec)
+	if len(executors) == 0 {
+		return
 	}
-	wg.Wait()
+
+	// 并发检查所有执行器（带并发上限）
+	var g errgroup.Group
+	g.SetLimit(h.maxConcurrentChecks())
+	for _, exec := range executors {
+		exec := exec
+		g.Go(func() error {
+			h.checkExecutor(exec)
+			return nil
+		})
+	}
+	_ = g.Wait()
+}
+
+// maxConcurrentChecks returns a reasonable concurrency cap for health checks.
+func (h *HealthChecker) maxConcurrentChecks() int {
+	// Up to 4x CPUs, but not more than 32 at once; at least 1.
+	n := runtime.NumCPU() * 4
+	if n > 32 {
+		n = 32
+	}
+	if n < 1 {
+		n = 1
+	}
+	return n
 }
 
 func (h *HealthChecker) checkExecutor(exe *executor.Executor) {
-    ctx, cancel := context.WithTimeout(context.Background(), h.config.Timeout)
-    defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), h.config.Timeout)
+	defer cancel()
 
-    isHealthy := h.ping(ctx, exe)
-    now := time.Now()
-    exe.UpdateLastHealthCheck(now)
+	isHealthy := h.ping(ctx, exe)
 
-    // 更新健康状态
-    if isHealthy {
-        // 健康检查成功 - 立即恢复，由实体封装状态变更
-        recoveredHealthy, recoveredOnline := exe.OnHealthCheckSuccess()
+	// reset entity patch aggregation for this round
+	exe.ClearPatch().UpdateLastHealthCheck(time.Now())
 
-        if recoveredHealthy {
-            h.logger.Info("executor recovered to healthy",
-                zap.Uint64("executor_id", exe.ID),
-                zap.String("instance_id", exe.InstanceID))
-        }
-        if recoveredOnline {
-            h.logger.Info("executor recovered to online",
-                zap.Uint64("executor_id", exe.ID),
-                zap.String("instance_id", exe.InstanceID))
-            // 重置熔断器状态
-            if h.taskRunner != nil {
-                h.taskRunner.ResetBreaker(exe.ID)
-            }
-        }
-    } else {
-        // 健康检查失败，由实体封装状态变更与计数逻辑
-        alreadyOffline, becameUnhealthy, becameOffline := exe.OnHealthCheckFailure(h.config.FailureThreshold)
-        if alreadyOffline {
-            h.logger.Debug("executor is already offline, skip failure count increment",
-                zap.Uint64("executor_id", exe.ID),
-                zap.String("instance_id", exe.InstanceID),
-                zap.Int("current_failures", exe.HealthCheckFailures))
-        } else {
-            if becameUnhealthy {
-                h.logger.Warn("executor marked as unhealthy",
-                    zap.Uint64("executor_id", exe.ID),
-                    zap.String("instance_id", exe.InstanceID),
-                    zap.Int("failures", exe.HealthCheckFailures))
-            }
-            if becameOffline {
-                h.logger.Warn("executor marked as offline due to health check failures",
-                    zap.Uint64("executor_id", exe.ID),
-                    zap.String("instance_id", exe.InstanceID),
-                    zap.Int("failures", exe.HealthCheckFailures))
-                // 清理熔断器，避免错误计数累积
-                if h.taskRunner != nil {
-                    h.taskRunner.RemoveBreaker(exe.ID)
-                }
-            }
-        }
-    }
+	if isHealthy {
+		_, recoveredOnline, didRecover := exe.TryRecoverAfterSuccess(h.incSuccess(exe.ID), h.config.RecoveryThreshold)
+		if didRecover {
+			// 恢复后，清空计数
+			h.resetSuccess(exe.ID)
+		}
+		if recoveredOnline && h.taskRunner != nil {
+			h.taskRunner.ResetBreaker(exe.ID)
+		}
+	} else {
+		// 失败：清空连续成功计数
+		h.resetSuccess(exe.ID)
+		_, _, becameOffline := exe.OnHealthCheckFailure(h.config.FailureThreshold)
+		// 清理熔断器，避免错误计数累积
+		if becameOffline && h.taskRunner != nil {
+			h.taskRunner.RemoveBreaker(exe.ID)
+		}
+	}
 
-    // 保存更新
-    if err := h.executorRepo.Save(ctx, exe); err != nil {
-        h.logger.Error("failed to update executor health status",
-            zap.Uint64("executor_id", exe.ID),
-            zap.Error(err))
-    }
+	h.update(exe.ID, exe.ExportPatch())
+}
+
+// incSuccess increments and returns the consecutive success count for an executor.
+func (h *HealthChecker) incSuccess(executorID uint64) int {
+	h.scMu.Lock()
+	defer h.scMu.Unlock()
+	h.successCounts[executorID] = h.successCounts[executorID] + 1
+	return h.successCounts[executorID]
+}
+
+// resetSuccess clears the consecutive success count for an executor.
+func (h *HealthChecker) resetSuccess(executorID uint64) {
+	h.scMu.Lock()
+	defer h.scMu.Unlock()
+	delete(h.successCounts, executorID)
 }
 
 func (h *HealthChecker) ping(ctx context.Context, executor *executor.Executor) bool {
@@ -170,10 +180,20 @@ func (h *HealthChecker) ping(ctx context.Context, executor *executor.Executor) b
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		h.logger.Debug("health check returned non-200 status", zap.Uint64("executor_id", executor.ID), zap.Int("status_code", resp.StatusCode))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		h.logger.Debug("health check returned non-2xx status", zap.Uint64("executor_id", executor.ID), zap.Int("status_code", resp.StatusCode))
 		return false
 	}
 
 	return true
+}
+
+func (h *HealthChecker) update(id uint64, patch *executor.ExecutorPatch) {
+	if patch == nil {
+		return
+	}
+	// Queue full: fallback to direct update
+	if err := h.executorRepo.Update(context.Background(), id, patch); err != nil {
+		h.logger.Error("failed direct update when queue full", zap.Uint64("executor_id", id), zap.Error(err))
+	}
 }

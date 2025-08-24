@@ -8,7 +8,6 @@ import (
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/load_balance"
 	"github.com/jobs/scheduler/internal/utils/loExt"
-	"github.com/yitter/idgenerator-go/idgen"
 )
 
 // LeastLoadedStrategy 最少负载策略
@@ -61,16 +60,13 @@ func (s *LeastLoadedStrategy) Select(ctx context.Context, taskID uint64, executo
 	state, err := s.loadBalanceRepo.GetByTaskID(ctx, taskID)
 	if err != nil {
 		// 创建新状态
-		state = &load_balance.LoadBalanceState{
-			ID:             uint64(idgen.NextId()),
-			TaskID:         taskID,
-			LastExecutorID: &minLoad.executor.ID,
-		}
+		state = load_balance.NewLoadBalanceStateForTask(taskID)
+		state.SetLastExecutorID(minLoad.executor.ID)
 		if err := s.loadBalanceRepo.Create(ctx, state); err != nil {
 			return nil, fmt.Errorf("failed to create load balance state: %w", err)
 		}
 	} else {
-		state.LastExecutorID = &minLoad.executor.ID
+		state.SetLastExecutorID(minLoad.executor.ID)
 		if err := s.loadBalanceRepo.Save(ctx, state); err != nil {
 			return nil, fmt.Errorf("failed to update load balance state: %w", err)
 		}
