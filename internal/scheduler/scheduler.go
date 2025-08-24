@@ -3,10 +3,12 @@ package scheduler
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
+	redis "github.com/go-redis/redis/v8"
 	"github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/biz/scheduler_instance"
 	"github.com/jobs/scheduler/internal/biz/task"
@@ -30,6 +32,7 @@ type Scheduler struct {
 
 	instanceID string
 	isLeader   bool
+	leaderMu   sync.RWMutex
 	stopCh     chan struct{}
 	wg         sync.WaitGroup
 
@@ -40,6 +43,10 @@ type Scheduler struct {
 	taskRepo              task.Repo
 	executionRepo         execution.Repo
 	schedulerInstanceRepo scheduler_instance.Repo
+
+	// redis pub/sub listener
+	rdb *redis.Client
+	sub *redis.PubSub
 }
 
 // New 创建调度器
@@ -55,6 +62,7 @@ func New(
 	taskRepo task.Repo,
 	executionRepo execution.Repo,
 	schedulerInstanceRepo scheduler_instance.Repo,
+	rdb *redis.Client,
 ) (*Scheduler, error) {
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -85,6 +93,9 @@ func New(
 		return nil, fmt.Errorf("failed to register scheduler instance: %w", err)
 	}
 
+	// inject redis client
+	s.rdb = rdb
+
 	return s, nil
 }
 
@@ -102,6 +113,9 @@ func (s *Scheduler) Start() error {
 	// 启动领导者选举
 	s.wg.Add(1)
 	go s.leaderElection()
+
+	// 订阅事件通道（即使不是leader，也要监听；只有leader处理）
+	s.startEventSubscriber()
 
 	return nil
 }
@@ -140,10 +154,71 @@ func (s *Scheduler) Stop() error {
 	// 更新实例状态
 	s.updateInstanceStatus(false)
 
+	// 关闭redis订阅
+	if s.sub != nil {
+		_ = s.sub.Close()
+	}
+	if s.rdb != nil {
+		_ = s.rdb.Close()
+	}
+
 	s.logger.Info("scheduler stopped",
 		zap.String("instance_id", s.instanceID))
 
 	return nil
+}
+
+// startEventSubscriber subscribes to Redis events and processes them only when leader.
+func (s *Scheduler) startEventSubscriber() {
+	if s.rdb == nil {
+		s.logger.Warn("redis client nil, event subscriber not started")
+		return
+	}
+	s.sub = s.rdb.Subscribe(context.Background(), redisChannel)
+	ch := s.sub.Channel()
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		for {
+			select {
+			case msg, ok := <-ch:
+				if !ok {
+					return
+				}
+				fmt.Println("娃哈哈，收到了事件了哦哦哦:", msg.Payload, s.IsLeader())
+				var ev RedisEvent
+				if err := json.Unmarshal([]byte(msg.Payload), &ev); err != nil {
+					s.logger.Error("failed to unmarshal event", zap.Error(err))
+					continue
+				}
+				if !s.IsLeader() {
+					// Only leader processes events
+					continue
+				}
+				s.handleEvent(ev)
+			case <-s.stopCh:
+				return
+			}
+		}
+	}()
+}
+
+func (s *Scheduler) handleEvent(ev RedisEvent) {
+	switch ev.Type {
+	case EventSubmitNewTask:
+		if err := s.ScheduleNow(ev.TaskID, ev.Parameters); err != nil {
+			s.logger.Error("failed to schedule now", zap.Error(err))
+		}
+	case EventReloadTasks:
+		if err := s.ReloadTasks(); err != nil {
+			s.logger.Error("failed to reload tasks", zap.Error(err))
+		}
+	case EventCancelExecutionTimer:
+		s.CancelExecutionTimeout(ev.ExecutionID)
+	default:
+		// ignore unknown
+	}
 }
 
 func (s *Scheduler) GetTaskRunner() *TaskRunner {
@@ -205,7 +280,7 @@ func (s *Scheduler) tryBecomeLeader() {
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.LockTimeout)
 	defer cancel()
 
-	if !s.isLeader {
+	if !s.IsLeader() {
 		// 尝试获取锁
 		locked, err := s.locker.TryLock(ctx)
 		if err != nil {
@@ -214,7 +289,7 @@ func (s *Scheduler) tryBecomeLeader() {
 		}
 
 		if locked {
-			s.isLeader = true
+			s.setLeader(true)
 			s.updateInstanceStatus(true)
 			s.logger.Info("became leader",
 				zap.String("instance_id", s.instanceID))
@@ -231,7 +306,7 @@ func (s *Scheduler) tryBecomeLeader() {
 		// 续约锁
 		if err := s.locker.Renew(ctx); err != nil {
 			s.logger.Error("failed to renew leader lock", zap.Error(err))
-			s.isLeader = false
+			s.setLeader(false)
 			s.updateInstanceStatus(false)
 
 			// 停止cron调度器
@@ -248,6 +323,20 @@ func (s *Scheduler) updateInstanceStatus(isLeader bool) {
 		s.logger.Error("failed to update instance status",
 			zap.Error(err))
 	}
+}
+
+// IsLeader safely reports current leadership state.
+func (s *Scheduler) IsLeader() bool {
+	s.leaderMu.RLock()
+	defer s.leaderMu.RUnlock()
+	return s.isLeader
+}
+
+// setLeader safely updates leadership state.
+func (s *Scheduler) setLeader(v bool) {
+	s.leaderMu.Lock()
+	s.isLeader = v
+	s.leaderMu.Unlock()
 }
 
 // loadAndScheduleTasks 加载并调度任务

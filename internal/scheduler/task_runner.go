@@ -163,27 +163,6 @@ func (r *TaskRunner) Stop() {
 	r.logger.Info("task runner stopped")
 }
 
-func (r *TaskRunner) submit(task *task.Task, record *execution.TaskExecution) {
-	select {
-	case r.taskCh <- &taskJob{task: task, execution: record}:
-		r.logger.Debug("task submitted",
-			zap.Uint64("task_id", task.ID),
-			zap.Uint64("execution_id", record.ID))
-	default:
-		r.logger.Warn("task queue is full, dropping task",
-			zap.Uint64("task_id", task.ID),
-			zap.Uint64("execution_id", record.ID))
-
-		// 更新执行状态为失败
-		ctx := context.Background()
-		record.Status = execution.ExecutionStatusFailed
-		record.Logs = "Task queue is full"
-		now := time.Now()
-		record.EndTime = &now
-		r.executionRepo.Save(ctx, record)
-	}
-}
-
 func (r *TaskRunner) Submit(taskId uint64, parameters map[string]any, executionId uint64) {
 	ctx := context.Background()
 	tsk, err := r.taskRepo.GetByID(ctx, taskId)
@@ -194,7 +173,7 @@ func (r *TaskRunner) Submit(taskId uint64, parameters map[string]any, executionI
 		return
 	}
 
-	exec, err := r.executionRepo.GetByID(ctx, executionId)
+	record, err := r.executionRepo.GetByID(ctx, executionId)
 	if err != nil {
 		r.logger.Error("failed to load task execution",
 			zap.Uint64("execution_id", executionId),
@@ -208,7 +187,24 @@ func (r *TaskRunner) Submit(taskId uint64, parameters map[string]any, executionI
 		tsk.Parameters[k] = v
 	}
 
-	r.submit(tsk, exec)
+	select {
+	case r.taskCh <- &taskJob{task: tsk, execution: record}:
+		r.logger.Debug("task submitted",
+			zap.Uint64("task_id", tsk.ID),
+			zap.Uint64("execution_id", record.ID))
+	default:
+		r.logger.Warn("task queue is full, dropping task",
+			zap.Uint64("task_id", tsk.ID),
+			zap.Uint64("execution_id", record.ID))
+
+		// 更新执行状态为失败
+		ctx := context.Background()
+		record.Status = execution.ExecutionStatusFailed
+		record.Logs = "Task queue is full"
+		now := time.Now()
+		record.EndTime = &now
+		r.executionRepo.Save(ctx, record)
+	}
 }
 
 // worker 工作协程
@@ -383,7 +379,6 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *task.Task, executio
 		}
 
 		req.Header.Set("Content-Type", "application/json")
-		//req.Header.Set("X-Execution-ID", cast.ToString(execution.ID))
 
 		// 发送请求
 		resp, err := r.httpClient.Do(req)
@@ -392,8 +387,6 @@ func (r *TaskRunner) callExecutor(ctx context.Context, task *task.Task, executio
 		}
 		defer resp.Body.Close()
 
-		fmt.Println(url)
-		fmt.Println("结果是:", resp.StatusCode)
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 			return fmt.Errorf("executor returned status %d", resp.StatusCode)
 		}

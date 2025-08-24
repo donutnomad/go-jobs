@@ -8,11 +8,12 @@ import (
 )
 
 type Config struct {
-	Scheduler   SchedulerConfig   `mapstructure:"scheduler"`
-	HealthCheck HealthCheckConfig `mapstructure:"health_check"`
-	Database    DatabaseConfig    `mapstructure:"database"`
-	Server      ServerConfig      `mapstructure:"server"`
-	Log         LogConfig         `mapstructure:"log"`
+    Scheduler   SchedulerConfig   `mapstructure:"scheduler"`
+    HealthCheck HealthCheckConfig `mapstructure:"health_check"`
+    Database    DatabaseConfig    `mapstructure:"database"`
+    Server      ServerConfig      `mapstructure:"server"`
+    Log         LogConfig         `mapstructure:"log"`
+    Redis       RedisConfig       `mapstructure:"redis"`
 }
 
 type SchedulerConfig struct {
@@ -51,10 +52,18 @@ type ServerConfig struct {
 }
 
 type LogConfig struct {
-	Level  string `mapstructure:"level"`
-	Format string `mapstructure:"format"`
-	Output string `mapstructure:"output"`
-	File   string `mapstructure:"file"`
+    Level  string `mapstructure:"level"`
+    Format string `mapstructure:"format"`
+    Output string `mapstructure:"output"`
+    File   string `mapstructure:"file"`
+}
+
+type RedisConfig struct {
+    Enabled  bool   `mapstructure:"enabled"`
+    Host     string `mapstructure:"host"`
+    Port     int    `mapstructure:"port"`
+    Password string `mapstructure:"password"`
+    DB       int    `mapstructure:"db"`
 }
 
 func Load(configPath string) (*Config, error) {
@@ -86,8 +95,15 @@ func Load(configPath string) (*Config, error) {
 	viper.SetDefault("server.max_header_bytes", 1048576)
 
 	viper.SetDefault("log.level", "info")
-	viper.SetDefault("log.format", "json")
-	viper.SetDefault("log.output", "stdout")
+    viper.SetDefault("log.format", "json")
+    viper.SetDefault("log.output", "stdout")
+
+    // redis defaults
+    viper.SetDefault("redis.enabled", false)
+    viper.SetDefault("redis.host", "localhost")
+    viper.SetDefault("redis.port", 6379)
+    viper.SetDefault("redis.password", "")
+    viper.SetDefault("redis.db", 0)
 
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("failed to read config: %w", err)
@@ -98,5 +114,5 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	return &cfg, nil
+    return &cfg, nil
 }

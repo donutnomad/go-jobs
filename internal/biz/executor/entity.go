@@ -154,30 +154,28 @@ func (e *Executor) OnHealthCheckFailure(threshold int) (alreadyOffline bool, bec
 // It always resets failure counter on success. Returns whether it recovered
 // from unhealthy and/or from offline, plus a flag indicating any recovery.
 func (e *Executor) TryRecoverAfterSuccess(consecutiveSuccess int, recoveryThreshold int) (recoveredHealthy bool, recoveredOnline bool, didRecover bool) {
-    // Always reset failures on a success event
-    if e.HealthCheckFailures != 0 {
-        e.HealthCheckFailures = 0
-        e.patch.WithHealthCheckFailures(e.HealthCheckFailures)
-    }
+	// Always reset failures on a success event
+	if e.HealthCheckFailures != 0 {
+		e.HealthCheckFailures = 0
+		e.patch.WithHealthCheckFailures(e.HealthCheckFailures)
+	}
 
-    // Determine if recovery is needed
-    needsRecovery := !e.IsHealthy || e.Status == ExecutorStatusOffline
-    if !needsRecovery {
-        return false, false, false
-    }
+	// Determine if recovery is needed
+	needsRecovery := !e.IsHealthy || e.Status == ExecutorStatusOffline
+	if !needsRecovery {
+		return false, false, false
+	}
 
-    // Normalize threshold: minimum 1
-    if recoveryThreshold <= 1 {
-        recoveryThreshold = 1
-    }
+	// Normalize threshold: minimum 1
+	recoveryThreshold = max(1, recoveryThreshold)
 
-    if consecutiveSuccess >= recoveryThreshold {
-        // Perform actual recovery (updates patch internally)
-        recoveredHealthy, recoveredOnline = e.OnHealthCheckSuccess()
-        didRecover = recoveredHealthy || recoveredOnline
-    }
+	if consecutiveSuccess >= recoveryThreshold {
+		// Perform actual recovery (updates patch internally)
+		recoveredHealthy, recoveredOnline = e.OnHealthCheckSuccess()
+		didRecover = recoveredHealthy || recoveredOnline
+	}
 
-    return
+	return
 }
 
 type ExecutorPatch struct {

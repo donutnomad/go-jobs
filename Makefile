@@ -16,7 +16,7 @@ help:
 # 构建二进制文件
 build:
 	@echo "Building scheduler..."
-	@go build -o bin/scheduler cmd/scheduler/main.go cmd/scheduler/wire_gen.go
+	@go build -o bin/scheduler cmd/scheduler/main.go cmd/scheduler/wire_gen.go cmd/scheduler/providers.go
 	@echo "Build complete: bin/scheduler"
 	go generate ./...
 
