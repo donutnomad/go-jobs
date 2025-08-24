@@ -7,6 +7,7 @@ import (
 	"github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/load_balance"
+	"github.com/jobs/scheduler/internal/utils/loExt"
 	"github.com/yitter/idgenerator-go/idgen"
 )
 
@@ -37,7 +38,7 @@ func (s *LeastLoadedStrategy) Select(ctx context.Context, taskID uint64, executo
 	loads := make([]executorLoad, 0, len(executors))
 	for _, exec := range executors {
 		// 统计该执行器的运行任务数
-		count, err := s.executionRepo.CountByExecutorAndStatus(ctx, exec.ID, []execution.ExecutionStatus{execution.ExecutionStatusRunning})
+		count, err := s.executionRepo.CountByExecutorAndStatus(ctx, exec.ID, loExt.DefSlice(execution.ExecutionStatusRunning))
 		if err != nil {
 			return nil, fmt.Errorf("failed to count running tasks: %w", err)
 		}

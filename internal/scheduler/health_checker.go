@@ -92,84 +92,66 @@ func (h *HealthChecker) checkAll() {
 }
 
 func (h *HealthChecker) checkExecutor(exe *executor.Executor) {
-	ctx, cancel := context.WithTimeout(context.Background(), h.config.Timeout)
-	defer cancel()
+    ctx, cancel := context.WithTimeout(context.Background(), h.config.Timeout)
+    defer cancel()
 
-	isHealthy := h.ping(ctx, exe)
-	now := time.Now()
-	exe.LastHealthCheck = &now
+    isHealthy := h.ping(ctx, exe)
+    now := time.Now()
+    exe.UpdateLastHealthCheck(now)
 
-	// 更新健康状态
-	if isHealthy {
-		// 健康检查成功 - 立即恢复
-		exe.HealthCheckFailures = 0
+    // 更新健康状态
+    if isHealthy {
+        // 健康检查成功 - 立即恢复，由实体封装状态变更
+        recoveredHealthy, recoveredOnline := exe.OnHealthCheckSuccess()
 
-		if !exe.IsHealthy {
-			// 从不健康恢复
-			exe.IsHealthy = true
-			h.logger.Info("executor recovered to healthy",
-				zap.Uint64("executor_id", exe.ID),
-				zap.String("instance_id", exe.InstanceID))
-		}
+        if recoveredHealthy {
+            h.logger.Info("executor recovered to healthy",
+                zap.Uint64("executor_id", exe.ID),
+                zap.String("instance_id", exe.InstanceID))
+        }
+        if recoveredOnline {
+            h.logger.Info("executor recovered to online",
+                zap.Uint64("executor_id", exe.ID),
+                zap.String("instance_id", exe.InstanceID))
+            // 重置熔断器状态
+            if h.taskRunner != nil {
+                h.taskRunner.ResetBreaker(exe.ID)
+            }
+        }
+    } else {
+        // 健康检查失败，由实体封装状态变更与计数逻辑
+        alreadyOffline, becameUnhealthy, becameOffline := exe.OnHealthCheckFailure(h.config.FailureThreshold)
+        if alreadyOffline {
+            h.logger.Debug("executor is already offline, skip failure count increment",
+                zap.Uint64("executor_id", exe.ID),
+                zap.String("instance_id", exe.InstanceID),
+                zap.Int("current_failures", exe.HealthCheckFailures))
+        } else {
+            if becameUnhealthy {
+                h.logger.Warn("executor marked as unhealthy",
+                    zap.Uint64("executor_id", exe.ID),
+                    zap.String("instance_id", exe.InstanceID),
+                    zap.Int("failures", exe.HealthCheckFailures))
+            }
+            if becameOffline {
+                h.logger.Warn("executor marked as offline due to health check failures",
+                    zap.Uint64("executor_id", exe.ID),
+                    zap.String("instance_id", exe.InstanceID),
+                    zap.Int("failures", exe.HealthCheckFailures))
+                // 清理熔断器，避免错误计数累积
+                if h.taskRunner != nil {
+                    h.taskRunner.RemoveBreaker(exe.ID)
+                }
+            }
+        }
+    }
 
-		// 如果之前是离线状态，立即恢复为在线
-		if exe.Status == executor.ExecutorStatusOffline {
-			exe.Status = executor.ExecutorStatusOnline
-			h.logger.Info("executor recovered to online",
-				zap.Uint64("executor_id", exe.ID),
-				zap.String("instance_id", exe.InstanceID))
-
-			// 重置熔断器状态
-			if h.taskRunner != nil {
-				h.taskRunner.ResetBreaker(exe.ID)
-			}
-		}
-	} else {
-		// 健康检查失败
-
-		// 如果执行器已经离线，不要继续累加失败次数
-		if exe.Status == executor.ExecutorStatusOffline {
-			// 已经离线，保持当前状态，不累加错误计数
-			h.logger.Debug("executor is already offline, skip failure count increment",
-				zap.Uint64("executor_id", exe.ID),
-				zap.String("instance_id", exe.InstanceID),
-				zap.Int("current_failures", exe.HealthCheckFailures))
-		} else {
-			// 执行器还未离线，累加失败次数
-			exe.HealthCheckFailures++
-
-			// 检查是否达到失败阈值
-			if exe.HealthCheckFailures >= h.config.FailureThreshold {
-				// 标记为不健康
-				if exe.IsHealthy {
-					exe.IsHealthy = false
-					h.logger.Warn("executor marked as unhealthy",
-						zap.Uint64("executor_id", exe.ID),
-						zap.String("instance_id", exe.InstanceID),
-						zap.Int("failures", exe.HealthCheckFailures))
-				}
-
-				// 标记为离线
-				exe.Status = executor.ExecutorStatusOffline
-				h.logger.Warn("executor marked as offline due to health check failures",
-					zap.Uint64("executor_id", exe.ID),
-					zap.String("instance_id", exe.InstanceID),
-					zap.Int("failures", exe.HealthCheckFailures))
-
-				// 清理熔断器，避免错误计数累积
-				if h.taskRunner != nil {
-					h.taskRunner.RemoveBreaker(exe.ID)
-				}
-			}
-		}
-	}
-
-	// 保存更新
-	if err := h.executorRepo.Save(ctx, exe); err != nil {
-		h.logger.Error("failed to update executor health status",
-			zap.Uint64("executor_id", exe.ID),
-			zap.Error(err))
-	}
+    // 保存更新
+    if err := h.executorRepo.Save(ctx, exe); err != nil {
+        h.logger.Error("failed to update executor health status",
+            zap.Uint64("executor_id", exe.ID),
+            zap.Error(err))
+    }
 }
 
 func (h *HealthChecker) ping(ctx context.Context, executor *executor.Executor) bool {

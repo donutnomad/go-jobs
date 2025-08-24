@@ -50,7 +50,3 @@ func onGinResponse[T any](c *gin.Context, data any, err error) {
 	}
 	c.JSON(http.StatusOK, data)
 }
-
-func onGinBindErr(c *gin.Context, err error) {
-	c.JSON(500, gin.H{"error": err.Error()})
-}

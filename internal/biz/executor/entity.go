@@ -20,11 +20,14 @@ type Executor struct {
 	Metadata            map[string]any
 }
 
+// Health check helpers encapsulate state transitions to keep domain logic
+// within the entity and make callers simpler and safer.
+
 func (e *Executor) GetLastHealthCheck() int64 {
-	if e.LastHealthCheck == nil {
-		return 0
-	}
-	return e.LastHealthCheck.Unix()
+    if e.LastHealthCheck == nil {
+        return 0
+    }
+    return e.LastHealthCheck.Unix()
 }
 
 func (e *Executor) GetHealthCheckURL() string {
@@ -56,10 +59,66 @@ func (e *Executor) SetStatus(status ExecutorStatus) *ExecutorPatch {
 }
 
 func (e *Executor) SetToOnline() *ExecutorPatch {
-	e.Status = ExecutorStatusOnline
-	e.IsHealthy = true
-	e.HealthCheckFailures = 0
-	return NewExecutorPatch().WithStatus(e.Status).WithIsHealthy(e.IsHealthy).WithHealthCheckFailures(e.HealthCheckFailures)
+    e.Status = ExecutorStatusOnline
+    e.IsHealthy = true
+    e.HealthCheckFailures = 0
+    return NewExecutorPatch().WithStatus(e.Status).WithIsHealthy(e.IsHealthy).WithHealthCheckFailures(e.HealthCheckFailures)
+}
+
+// UpdateLastHealthCheck sets the last health check time.
+func (e *Executor) UpdateLastHealthCheck(t time.Time) {
+    e.LastHealthCheck = &t
+}
+
+// OnHealthCheckSuccess applies success semantics:
+// - reset failure counter
+// - mark healthy
+// - if previously offline, switch to online
+// Returns two flags indicating whether it recovered from unhealthy and/or from offline.
+func (e *Executor) OnHealthCheckSuccess() (recoveredHealthy bool, recoveredOnline bool) {
+    // Reset failures on success
+    if e.HealthCheckFailures != 0 {
+        e.HealthCheckFailures = 0
+    }
+
+    // Recover health if needed
+    if !e.IsHealthy {
+        e.IsHealthy = true
+        recoveredHealthy = true
+    }
+
+    // If previously offline, recover to online
+    if e.Status == ExecutorStatusOffline {
+        e.Status = ExecutorStatusOnline
+        recoveredOnline = true
+    }
+
+    return
+}
+
+// OnHealthCheckFailure applies failure semantics:
+// - if already offline, skip incrementing failures (idempotent while offline)
+// - otherwise increment failures; if reaching threshold, mark unhealthy and offline
+// Returns flags: alreadyOffline, becameUnhealthy, becameOffline.
+func (e *Executor) OnHealthCheckFailure(threshold int) (alreadyOffline bool, becameUnhealthy bool, becameOffline bool) {
+    if e.Status == ExecutorStatusOffline {
+        return true, false, false
+    }
+
+    e.HealthCheckFailures++
+
+    if e.HealthCheckFailures >= threshold {
+        if e.IsHealthy {
+            e.IsHealthy = false
+            becameUnhealthy = true
+        }
+        if e.Status != ExecutorStatusOffline {
+            e.Status = ExecutorStatusOffline
+            becameOffline = true
+        }
+    }
+
+    return
 }
 
 type ExecutorPatch struct {
