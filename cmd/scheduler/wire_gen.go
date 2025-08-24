@@ -42,7 +42,7 @@ func InitilizeApp(logger *zap.Logger, cfg config.Config, db commonrepo.DB) (*App
 	if err != nil {
 		return nil, err
 	}
-	eventBus := scheduler.NewEventBus(schedulerScheduler, taskRunner)
+	eventBus := scheduler.NewEventBus(schedulerScheduler)
 	usecase := task.NewUsecase(taskRepo)
 	iTaskAPI := api.NewTaskAPI(eventBus, usecase, taskRepo, executionRepo, executorRepo)
 	iExecutionAPI := api.NewExecutionAPI(logger, eventBus, executionRepo, taskRepo, executorRepo)

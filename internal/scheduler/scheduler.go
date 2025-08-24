@@ -298,6 +298,15 @@ func (s *Scheduler) ReloadTasks() error {
 	return s.loadAndScheduleTasks()
 }
 
+func (s *Scheduler) CancelExecutionTimeout(executionID uint64) {
+	s.taskRunner.CancelTimeout(executionID)
+}
+
+func (s *Scheduler) ScheduleNow(taskID uint64, parameters map[string]any, executionID uint64) error {
+	s.taskRunner.Submit(taskID, parameters, executionID)
+	return nil
+}
+
 // scheduleTask 调度任务执行
 func (s *Scheduler) scheduleTask(task *task.Task) {
 	ctx := context.Background()

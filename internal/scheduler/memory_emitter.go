@@ -1,17 +1,15 @@
 package scheduler
 
 type EventBus struct {
-	scheduler  *Scheduler
-	taskRunner ITaskRunner
+	scheduler *Scheduler
 }
 
-func NewEventBus(scheduler *Scheduler, taskRunner ITaskRunner) *EventBus {
-	return &EventBus{scheduler: scheduler, taskRunner: taskRunner}
+func NewEventBus(scheduler *Scheduler) *EventBus {
+	return &EventBus{scheduler: scheduler}
 }
 
 func (e *EventBus) SubmitNewTask(taskID uint64, parameters map[string]any, executionID uint64) error {
-	e.taskRunner.Submit(taskID, parameters, executionID)
-	return nil
+	return e.scheduler.ScheduleNow(taskID, parameters, executionID)
 }
 
 func (e *EventBus) ReloadTasks() error {
@@ -19,6 +17,6 @@ func (e *EventBus) ReloadTasks() error {
 }
 
 func (e *EventBus) CancelExecutionTimer(executionID uint64) error {
-	e.taskRunner.CancelTimeout(executionID)
+	e.scheduler.CancelExecutionTimeout(executionID)
 	return nil
 }
