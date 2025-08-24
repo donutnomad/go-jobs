@@ -25,7 +25,8 @@ interface TaskExecutor {
   task?: Task;
 }
 
-interface Executor {
+// 服务器对象类型定义
+interface ExecutorServer {
   id: string;
   name: string;
   instance_id: string;
@@ -39,20 +40,148 @@ interface Executor {
   task_executors?: TaskExecutor[];
 }
 
-interface ExecutorGroup {
+// View层对象类型定义
+interface ExecutorView {
+  id: string;
   name: string;
-  executors: Executor[];
-  totalCount: number;
-  onlineCount: number;
-  healthyCount: number;
-  offlineCount: number;
-  totalTasks: number;
-  sharedTasks: TaskExecutor[]; // 共享的任务列表
+  displayName: string;
+  displayUrl: string;
+  type: 'instance' | 'config-only';
+  status: 'online' | 'offline' | 'unhealthy' | 'config-only';
+  isHealthy: boolean;
+  healthCheckFailures: number;
+  createdAt: Date;
+  lastHealthCheck?: Date;
+  healthCheckUrl: string;
+  taskExecutors: TaskExecutor[];
+  // 原始服务器对象，用于编辑等操作
+  _raw: ExecutorServer;
+}
+
+interface ExecutorGroupView {
+  name: string;
+  displaySummary: string;
+  instances: ExecutorView[];
+  configOnlyItems: ExecutorView[];
+  stats: {
+    totalInstances: number;
+    onlineCount: number;
+    healthyCount: number;
+    offlineCount: number;
+    configOnlyCount: number;
+    totalTasks: number;
+  };
+  sharedTasks: TaskExecutor[];
+}
+
+// 数据转换层
+class ExecutorTransformer {
+  static toView(server: ExecutorServer): ExecutorView {
+    const hasInstanceInfo = server.instance_id || server.base_url;
+    const type = hasInstanceInfo ? 'instance' : 'config-only';
+    
+    let status: ExecutorView['status'];
+    if (type === 'config-only') {
+      status = 'config-only';
+    } else if (server.status === 'online' && server.is_healthy) {
+      status = 'online';
+    } else if (server.status === 'online' && !server.is_healthy) {
+      status = 'unhealthy';
+    } else {
+      status = 'offline';
+    }
+
+    return {
+      id: server.id,
+      name: server.name,
+      displayName: server.instance_id || `${server.name}-config`,
+      displayUrl: server.base_url || '暂无服务地址',
+      type,
+      status,
+      isHealthy: server.is_healthy,
+      healthCheckFailures: server.health_check_failures,
+      createdAt: new Date(server.created_at),
+      lastHealthCheck: server.last_health_check ? new Date(server.last_health_check) : undefined,
+      healthCheckUrl: server.health_check_url || '暂无',
+      taskExecutors: server.task_executors || [],
+      _raw: server,
+    };
+  }
+
+  static toGroupView(name: string, servers: ExecutorServer[]): ExecutorGroupView {
+    const views = servers.map(this.toView);
+    const instances = views.filter(v => v.type === 'instance');
+    const configOnlyItems = views.filter(v => v.type === 'config-only');
+    
+    const stats = {
+      totalInstances: instances.length,
+      onlineCount: instances.filter(v => v.status === 'online').length,
+      healthyCount: instances.filter(v => v.status === 'online').length,
+      offlineCount: instances.filter(v => v.status === 'offline').length,
+      configOnlyCount: configOnlyItems.length,
+      totalTasks: views.length > 0 ? views[0].taskExecutors.length : 0,
+    };
+
+    let displaySummary = '';
+    if (stats.totalInstances > 0) {
+      displaySummary = `${stats.totalInstances} 个实例`;
+    } else {
+      displaySummary = '暂无实例';
+    }
+    
+    if (stats.totalTasks > 0) {
+      displaySummary += ` • 关联 ${stats.totalTasks} 个任务`;
+    }
+
+    return {
+      name,
+      displaySummary,
+      instances,
+      configOnlyItems,
+      stats,
+      sharedTasks: views.length > 0 ? views[0].taskExecutors : [],
+    };
+  }
+
+  static getStatusBadge(view: ExecutorView) {
+    switch (view.status) {
+      case 'online':
+        return {
+          className: 'bg-green-100 text-green-800',
+          icon: 'CheckCircle',
+          text: '健康'
+        };
+      case 'unhealthy':
+        return {
+          className: 'bg-yellow-100 text-yellow-800',
+          icon: 'AlertCircle',
+          text: '异常'
+        };
+      case 'offline':
+        return {
+          className: 'bg-red-100 text-red-800',
+          icon: 'AlertCircle',
+          text: '离线'
+        };
+      case 'config-only':
+        return {
+          className: 'bg-orange-100 text-orange-800',
+          icon: 'Settings',
+          text: '仅配置'
+        };
+      default:
+        return {
+          className: 'bg-gray-100 text-gray-800',
+          icon: 'AlertCircle',
+          text: '未知'
+        };
+    }
+  }
 }
 
 export default function ExecutorsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('');
-  const [editingExecutor, setEditingExecutor] = useState<Executor | null>(null);
+  const [editingExecutor, setEditingExecutor] = useState<ExecutorServer | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [editForm, setEditForm] = useState({
     name: '',
@@ -62,9 +191,9 @@ export default function ExecutorsPage() {
   const queryClient = useQueryClient();
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
-  // 分组处理函数
-  const groupExecutorsByName = (executors: Executor[]): ExecutorGroup[] => {
-    const groups = new Map<string, Executor[]>();
+  // 分组处理函数 - 使用转换器
+  const groupExecutorsByName = (executors: ExecutorServer[]): ExecutorGroupView[] => {
+    const groups = new Map<string, ExecutorServer[]>();
     
     // 按名称分组
     executors.forEach(executor => {
@@ -74,27 +203,10 @@ export default function ExecutorsPage() {
       groups.get(executor.name)!.push(executor);
     });
 
-    // 转换为 ExecutorGroup 对象并计算统计信息
-    return Array.from(groups.entries()).map(([name, executors]) => {
-      const onlineCount = executors.filter(e => e.status === 'online').length;
-      const healthyCount = executors.filter(e => e.status === 'online' && e.is_healthy).length;
-      const offlineCount = executors.filter(e => e.status === 'offline').length;
-      
-      // 获取共享任务（从第一个executor获取，因为同名executor的任务是相同的）
-      const sharedTasks = executors.length > 0 ? (executors[0].task_executors || []) : [];
-      const totalTasks = sharedTasks.length;
-      
-      return {
-        name,
-        executors,
-        totalCount: executors.length,
-        onlineCount,
-        healthyCount,
-        offlineCount,
-        totalTasks,
-        sharedTasks,
-      };
-    }).sort((a, b) => a.name.localeCompare(b.name));
+    // 使用转换器转换为View对象
+    return Array.from(groups.entries())
+      .map(([name, servers]) => ExecutorTransformer.toGroupView(name, servers))
+      .sort((a, b) => a.name.localeCompare(b.name));
   };
 
   // 切换分组展开状态
@@ -109,7 +221,7 @@ export default function ExecutorsPage() {
   };
 
   // 获取执行器列表（包含关联的任务信息）- 不再传递筛选参数给后端
-  const { data: allExecutors, isLoading } = useQuery<Executor[]>({
+  const { data: allExecutors, isLoading } = useQuery<ExecutorServer[]>({
     queryKey: ['executors'],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -127,14 +239,16 @@ export default function ExecutorsPage() {
     staleTime: 0,
   });
 
-  // 在前端本地筛选执行器
+  // 在前端本地筛选执行器 - 使用view对象
   const filteredExecutors = allExecutors?.filter(executor => {
     if (!statusFilter) return true;
     
+    const view = ExecutorTransformer.toView(executor);
+    
     if (statusFilter === 'online') {
-      return executor.status === 'online';
+      return view.status === 'online';
     } else if (statusFilter === 'offline') {
-      return executor.status === 'offline';
+      return view.status === 'offline' || view.status === 'config-only';
     }
     
     return true;
@@ -179,18 +293,18 @@ export default function ExecutorsPage() {
     },
   });
 
-  const handleDelete = async (executor: Executor) => {
-    if (confirm(`确定要删除执行器 \"${executor.name}\" 吗？`)) {
-      deleteMutation.mutate(executor.id);
+  const handleDelete = async (view: ExecutorView) => {
+    if (confirm(`确定要删除执行器 \"${view.name}\" 吗？`)) {
+      deleteMutation.mutate(view.id);
     }
   };
 
-  const handleEdit = (executor: Executor) => {
-    setEditingExecutor(executor);
+  const handleEdit = (view: ExecutorView) => {
+    setEditingExecutor(view._raw);
     setEditForm({
-      name: executor.name,
-      base_url: executor.base_url,
-      health_check_url: executor.health_check_url,
+      name: view._raw.name,
+      base_url: view._raw.base_url,
+      health_check_url: view._raw.health_check_url,
     });
   };
 
@@ -212,31 +326,34 @@ export default function ExecutorsPage() {
     });
   };
 
-  const getStatusBadge = (executor: Executor) => {
-    if (executor.status === 'offline') {
-      return (
-        <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full">
-          <AlertCircle className="w-3 h-3 mr-1" />
-          离线
-        </span>
-      );
-    }
-    if (executor.status === 'online' && executor.is_healthy) {
-      return (
-        <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
-          <CheckCircle className="w-3 h-3 mr-1" />
-          健康
-        </span>
-      );
-    }
-    // online but not healthy
+  const renderStatusBadge = (view: ExecutorView) => {
+    const badge = ExecutorTransformer.getStatusBadge(view);
+    const IconComponent = {
+      CheckCircle,
+      AlertCircle,
+      Settings,
+    }[badge.icon] || AlertCircle;
+
     return (
-      <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
-        <AlertCircle className="w-3 h-3 mr-1" />
-        异常
+      <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${badge.className}`}>
+        <IconComponent className="w-3 h-3 mr-1" />
+        {badge.text}
       </span>
     );
   };
+
+  // 计算全局统计信息 - 使用view对象
+  const globalStats = allExecutors ? (() => {
+    const allViews = allExecutors.map(ExecutorTransformer.toView);
+    const instances = allViews.filter(v => v.type === 'instance');
+    
+    return {
+      total: instances.length,
+      healthy: instances.filter(v => v.status === 'online').length,
+      unhealthy: instances.filter(v => v.status === 'unhealthy').length,
+      offline: instances.filter(v => v.status === 'offline').length,
+    };
+  })() : { total: 0, healthy: 0, unhealthy: 0, offline: 0 };
 
   const getStrategyText = (strategy: string) => {
     const strategyMap: Record<string, string> = {
@@ -300,7 +417,7 @@ export default function ExecutorsPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">总执行器</p>
-              <p className="text-2xl font-bold text-gray-900">{allExecutors?.length || 0}</p>
+              <p className="text-2xl font-bold text-gray-900">{globalStats.total}</p>
             </div>
             <Server className="w-8 h-8 text-gray-400" />
           </div>
@@ -310,9 +427,7 @@ export default function ExecutorsPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">健康执行器</p>
-              <p className="text-2xl font-bold text-green-600">
-                {allExecutors?.filter(e => e.status === 'online' && e.is_healthy).length || 0}
-              </p>
+              <p className="text-2xl font-bold text-green-600">{globalStats.healthy}</p>
             </div>
             <CheckCircle className="w-8 h-8 text-green-400" />
           </div>
@@ -322,9 +437,7 @@ export default function ExecutorsPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">异常执行器</p>
-              <p className="text-2xl font-bold text-yellow-600">
-                {allExecutors?.filter(e => e.status === 'online' && !e.is_healthy).length || 0}
-              </p>
+              <p className="text-2xl font-bold text-yellow-600">{globalStats.unhealthy}</p>
             </div>
             <AlertCircle className="w-8 h-8 text-yellow-400" />
           </div>
@@ -334,9 +447,7 @@ export default function ExecutorsPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">离线执行器</p>
-              <p className="text-2xl font-bold text-red-600">
-                {allExecutors?.filter(e => e.status === 'offline').length || 0}
-              </p>
+              <p className="text-2xl font-bold text-red-600">{globalStats.offline}</p>
             </div>
             <Activity className="w-8 h-8 text-red-400" />
           </div>
@@ -359,34 +470,35 @@ export default function ExecutorsPage() {
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900">{group.name}</h3>
-                    <p className="text-sm text-gray-600">
-                      {group.totalCount} 个实例
-                      {group.totalTasks > 0 && (
-                        <span className="ml-2">• 关联 {group.totalTasks} 个任务</span>
-                      )}
-                    </p>
+                    <p className="text-sm text-gray-600">{group.displaySummary}</p>
                   </div>
                 </div>
                 
                 <div className="flex items-center space-x-4">
                   {/* 状态统计 */}
                   <div className="flex items-center space-x-3">
-                    {group.healthyCount > 0 && (
+                    {group.stats.healthyCount > 0 && (
                       <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
                         <CheckCircle className="w-3 h-3 mr-1" />
-                        {group.healthyCount} 健康
+                        {group.stats.healthyCount} 健康
                       </span>
                     )}
-                    {group.onlineCount - group.healthyCount > 0 && (
+                    {group.stats.onlineCount - group.stats.healthyCount > 0 && (
                       <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
                         <AlertCircle className="w-3 h-3 mr-1" />
-                        {group.onlineCount - group.healthyCount} 异常
+                        {group.stats.onlineCount - group.stats.healthyCount} 异常
                       </span>
                     )}
-                    {group.offlineCount > 0 && (
+                    {group.stats.offlineCount > 0 && (
                       <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full">
                         <AlertCircle className="w-3 h-3 mr-1" />
-                        {group.offlineCount} 离线
+                        {group.stats.offlineCount} 离线
+                      </span>
+                    )}
+                    {group.stats.configOnlyCount > 0 && (
+                      <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-orange-100 text-orange-800 rounded-full">
+                        <Settings className="w-3 h-3 mr-1" />
+                        {group.stats.configOnlyCount} 待配置
                       </span>
                     )}
                   </div>
@@ -458,72 +570,147 @@ export default function ExecutorsPage() {
                     </div>
                   )}
 
-                  {/* 实例列表部分 */}
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
-                      <Server className="w-4 h-4 mr-2" />
-                      执行器实例 ({group.totalCount} 个)
-                    </h4>
-                    <div className="space-y-3">
-                      {group.executors.map((executor) => (
-                        <div key={executor.id} className="bg-white rounded-lg border border-gray-200 p-4">
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex items-center space-x-3">
-                              <div className="p-2 bg-gray-100 rounded-lg">
-                                <Activity className="w-4 h-4 text-gray-600" />
+                  {/* 真实实例部分 */}
+                  {group.instances.length > 0 && (
+                    <>
+                      <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
+                        <Server className="w-4 h-4 mr-2" />
+                        执行器实例 ({group.stats.totalInstances} 个)
+                      </h4>
+                      <div className="space-y-3 mb-4">
+                        {group.instances.map((view) => (
+                          <div key={view.id} className="bg-white rounded-lg border border-gray-200 p-4">
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center space-x-3">
+                                <div className="p-2 bg-gray-100 rounded-lg">
+                                  <Activity className="w-4 h-4 text-gray-600" />
+                                </div>
+                                <div>
+                                  <h5 className="text-sm font-semibold text-gray-900">
+                                    {view.displayName}
+                                  </h5>
+                                  <p className="text-xs text-gray-600 mt-1">
+                                    {view.displayUrl}
+                                  </p>
+                                </div>
                               </div>
-                              <div>
-                                <h5 className="text-sm font-semibold text-gray-900">{executor.instance_id}</h5>
-                                <p className="text-xs text-gray-600 mt-1">{executor.base_url}</p>
+                              <div className="flex items-center space-x-3">
+                                {renderStatusBadge(view)}
+                                <button
+                                  onClick={() => handleEdit(view)}
+                                  className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                                  title="编辑执行器"
+                                >
+                                  <Edit className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(view)}
+                                  className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                                  title="删除执行器"
+                                  disabled={deleteMutation.isPending}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
                               </div>
                             </div>
-                            <div className="flex items-center space-x-3">
-                              {getStatusBadge(executor)}
-                              <button
-                                onClick={() => handleEdit(executor)}
-                                className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-                                title="编辑执行器"
-                              >
-                                <Edit className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={() => handleDelete(executor)}
-                                className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-                                title="删除执行器"
-                                disabled={deleteMutation.isPending}
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
 
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
-                            <div className="flex items-center space-x-2">
-                              <CheckCircle className="w-3 h-3 text-gray-400" />
-                              <span className="text-gray-600">失败次数:</span>
-                              <span className="font-medium">{executor.health_check_failures}</span>
-                            </div>
-                            
-                            <div className="flex items-center space-x-2">
-                              <Calendar className="w-3 h-3 text-gray-400" />
-                              <span className="text-gray-600">注册时间:</span>
-                              <span className="font-medium">
-                                {format(new Date(executor.created_at), 'MM-dd HH:mm')}
-                              </span>
-                            </div>
-                            
-                            <div className="flex items-center space-x-2">
-                              <Activity className="w-3 h-3 text-gray-400" />
-                              <span className="text-gray-600">健康检查URL:</span>
-                              <span className="font-medium text-xs truncate" title={executor.health_check_url}>
-                                {executor.health_check_url?.replace(executor.base_url, '') || 'N/A'}
-                              </span>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                              <div className="flex items-center space-x-2">
+                                <CheckCircle className="w-3 h-3 text-gray-400" />
+                                <span className="text-gray-600">失败次数:</span>
+                                <span className="font-medium">{view.healthCheckFailures}</span>
+                              </div>
+                              
+                              <div className="flex items-center space-x-2">
+                                <Calendar className="w-3 h-3 text-gray-400" />
+                                <span className="text-gray-600">注册时间:</span>
+                                <span className="font-medium">
+                                  {format(view.createdAt, 'MM-dd HH:mm')}
+                                </span>
+                              </div>
+                              
+                              <div className="flex items-center space-x-2">
+                                <Activity className="w-3 h-3 text-gray-400" />
+                                <span className="text-gray-600">健康检查URL:</span>
+                                <span className="font-medium text-xs truncate" title={view.healthCheckUrl}>
+                                  {view.healthCheckUrl === '暂无' ? '暂无' : 
+                                    (view._raw.base_url ? 
+                                      view.healthCheckUrl.replace(view._raw.base_url, '') : 
+                                      view.healthCheckUrl
+                                    )
+                                  }
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {/* 仅名称配置部分 */}
+                  {group.configOnlyItems.length > 0 && (
+                    <>
+                      <h4 className="text-sm font-medium text-orange-700 mb-3 flex items-center">
+                        <Settings className="w-4 h-4 mr-2" />
+                        仅名称配置 ({group.stats.configOnlyCount} 个)
+                      </h4>
+                      <div className="space-y-3">
+                        {group.configOnlyItems.map((view) => (
+                          <div key={view.id} className="bg-orange-50 rounded-lg border border-orange-200 p-4">
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center space-x-3">
+                                <div className="p-2 bg-orange-200 rounded-lg">
+                                  <Settings className="w-4 h-4 text-orange-600" />
+                                </div>
+                                <div>
+                                  <h5 className="text-sm font-semibold text-gray-900">
+                                    {view.name}
+                                  </h5>
+                                  <p className="text-xs text-orange-600 mt-1">
+                                    需要完善实例信息后才能上线
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-3">
+                                {renderStatusBadge(view)}
+                                <button
+                                  onClick={() => handleEdit(view)}
+                                  className="p-1 text-orange-400 hover:text-orange-600 transition-colors"
+                                  title="完善执行器信息"
+                                >
+                                  <Edit className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(view)}
+                                  className="p-1 text-orange-400 hover:text-red-600 transition-colors"
+                                  title="删除执行器"
+                                  disabled={deleteMutation.isPending}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                              <div className="flex items-center space-x-2">
+                                <Calendar className="w-3 h-3 text-orange-400" />
+                                <span className="text-gray-600">创建时间:</span>
+                                <span className="font-medium">
+                                  {format(view.createdAt, 'MM-dd HH:mm')}
+                                </span>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <Settings className="w-3 h-3 text-orange-400" />
+                                <span className="text-gray-600">状态:</span>
+                                <span className="font-medium text-orange-600">待完善</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}

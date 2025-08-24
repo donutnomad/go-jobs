@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/jobs/scheduler/internal/biz/execution"
@@ -167,12 +168,32 @@ type UpdateExecutorReq struct {
 }
 
 type RegisterExecutorReq struct {
-	ExecutorID     string           `json:"executor_id" binding:"required"`   // 执行器唯一ID
+	ExecutorID     string           `json:"executor_id"`                      // 执行器唯一ID（仅名称模式时可选）
 	ExecutorName   string           `json:"executor_name" binding:"required"` // 执行器名称
-	ExecutorURL    string           `json:"executor_url" binding:"required"`  // 执行器URL
+	ExecutorURL    string           `json:"executor_url"`                     // 执行器URL（仅名称模式时可选）
 	HealthCheckURL string           `json:"health_check_url"`                 // 健康检查URL（可选）
 	Tasks          []TaskDefinition `json:"tasks"`                            // 任务定义列表
 	Metadata       map[string]any   `json:"metadata"`                         // 元数据
+	NameOnly       bool             `json:"name_only"`                        // 是否为仅名称注册模式
+}
+
+// Validate 验证注册请求的有效性
+func (r *RegisterExecutorReq) Validate() error {
+	if r.ExecutorName == "" {
+		return fmt.Errorf("executor_name is required")
+	}
+
+	// 如果不是仅名称模式，需要验证完整字段
+	if !r.NameOnly {
+		if r.ExecutorID == "" {
+			return fmt.Errorf("executor_id is required for full registration")
+		}
+		if r.ExecutorURL == "" {
+			return fmt.Errorf("executor_url is required for full registration")
+		}
+	}
+
+	return nil
 }
 
 type TaskDefinition struct {
@@ -390,6 +411,7 @@ func (t *ExecutorResp) FromDomain(in *executor.Executor) *ExecutorResp {
 		CreatedAt:           in.CreatedAt,
 		UpdatedAt:           in.UpdatedAt,
 		Name:                in.Name,
+		InstanceID:          in.InstanceID,
 		BaseURL:             in.BaseURL,
 		HealthCheckURL:      in.HealthCheckURL,
 		Status:              in.Status,
