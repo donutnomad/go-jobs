@@ -46,7 +46,7 @@ type ITaskAPI interface {
 	// TriggerTask 手动触发任务
 	// 手动触发指定id的任务
 	// @POST(api/v1/tasks/{id}/trigger)
-	TriggerTask(ctx *gin.Context, id uint64, req TriggerTaskRequest) (*TaskExecutionResp, error)
+	TriggerTask(ctx *gin.Context, id uint64, req TriggerTaskRequest) (string, error)
 
 	// Pause 暂停任务
 	// 暂停指定id的任务
@@ -183,33 +183,18 @@ func (t *TaskAPI) Delete(ctx *gin.Context, id uint64) (string, error) {
 	return "task deleted successfully", nil
 }
 
-func (t *TaskAPI) TriggerTask(ctx *gin.Context, id uint64, req TriggerTaskRequest) (*TaskExecutionResp, error) {
+func (t *TaskAPI) TriggerTask(ctx *gin.Context, id uint64, req TriggerTaskRequest) (string, error) {
 	task_, err := t.repo.GetByID(ctx, id)
 	if err != nil {
-		return nil, err
+		return "", err
 	} else if task_ == nil {
-		return nil, errors.New("task not found")
+		return "", errors.New("task not found")
 	}
-	new_ := execution.TaskExecution{
-		ID:            uint64(idgen.NextId()),
-		TaskID:        task_.ID,
-		ScheduledTime: time.Now(),
-		Status:        execution.ExecutionStatusPending,
-	}
-	err = t.executionRepo.Create(ctx, &new_)
+	err = t.emitter.SubmitNewTask(id, req.Parameters)
 	if err != nil {
-		return nil, err
+		return "", errors.New("failed to submit task to emitter: " + err.Error())
 	}
-
-	err = t.emitter.SubmitNewTask(id, req.Parameters, new_.ID)
-	if err != nil {
-		_ = t.executionRepo.Delete(ctx, new_.ID)
-		return nil, errors.New("failed to submit task to emitter: " + err.Error())
-	}
-
-	out := new(TaskExecutionResp).FromDomain(&new_)
-	out.Task = new(TaskResp).FromDomain(task_)
-	return out, nil
+	return "ok", nil
 }
 
 func (t *TaskAPI) Pause(ctx *gin.Context, id uint64) (string, error) {

@@ -8,8 +8,8 @@ func NewEventBus(scheduler *Scheduler) *EventBus {
 	return &EventBus{scheduler: scheduler}
 }
 
-func (e *EventBus) SubmitNewTask(taskID uint64, parameters map[string]any, executionID uint64) error {
-	return e.scheduler.ScheduleNow(taskID, parameters, executionID)
+func (e *EventBus) SubmitNewTask(taskID uint64, parameters map[string]any) error {
+	return e.scheduler.ScheduleNow(taskID, parameters)
 }
 
 func (e *EventBus) ReloadTasks() error {

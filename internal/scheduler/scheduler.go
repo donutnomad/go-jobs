@@ -302,8 +302,19 @@ func (s *Scheduler) CancelExecutionTimeout(executionID uint64) {
 	s.taskRunner.CancelTimeout(executionID)
 }
 
-func (s *Scheduler) ScheduleNow(taskID uint64, parameters map[string]any, executionID uint64) error {
-	s.taskRunner.Submit(taskID, parameters, executionID)
+func (s *Scheduler) ScheduleNow(taskID uint64, parameters map[string]any) error {
+	execution_ := execution.TaskExecution{
+		ID:            uint64(idgen.NextId()),
+		TaskID:        taskID,
+		ScheduledTime: time.Now(),
+		Status:        execution.ExecutionStatusPending,
+	}
+	ctx := context.Background()
+	err := s.executionRepo.Create(ctx, &execution_)
+	if err != nil {
+		return err
+	}
+	s.taskRunner.Submit(taskID, parameters, execution_.ID)
 	return nil
 }
 

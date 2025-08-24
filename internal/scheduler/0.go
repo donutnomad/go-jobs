@@ -17,7 +17,7 @@ type ITaskRunner interface {
 }
 
 type IEmitter interface {
-	SubmitNewTask(taskID uint64, parameters map[string]any, executionID uint64) error
+	SubmitNewTask(taskID uint64, parameters map[string]any) error
 	ReloadTasks() error
 	CancelExecutionTimer(executionID uint64) error
 }

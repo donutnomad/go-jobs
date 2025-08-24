@@ -472,7 +472,7 @@ func (a *TaskAPIWrap) UpdateTask(ctx *gin.Context) {
 // @Produce json
 // @Param id path integer true "id"
 // @Param req body TriggerTaskRequest true "req"
-// @Success 200 {object} *TaskExecutionResp
+// @Success 200 {object} string
 // @Router api/v1/tasks/{id}/trigger [post]
 func (a *TaskAPIWrap) TriggerTask(ctx *gin.Context) {
 	id := cast.ToUint64(ctx.Param("id"))
@@ -481,7 +481,7 @@ func (a *TaskAPIWrap) TriggerTask(ctx *gin.Context) {
 		return
 	}
 	result, err := a.inner.TriggerTask(ctx, id, req)
-	onGinResponse[*TaskExecutionResp](ctx, result, err)
+	onGinResponse[string](ctx, result, err)
 }
 
 // Pause
