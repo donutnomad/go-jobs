@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/cast"
 	"github.com/yitter/idgenerator-go/idgen"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 type IExecutorAPI interface {
@@ -51,7 +50,6 @@ type IExecutorAPI interface {
 }
 
 type ExecutorAPI struct {
-	db     *gorm.DB
 	logger *zap.Logger
 	mu     sync.RWMutex
 
@@ -60,17 +58,18 @@ type ExecutorAPI struct {
 	taskRepo     task.Repo
 }
 
-func NewExecutorAPI(db *gorm.DB,
+func NewExecutorAPI(
 	logger *zap.Logger,
 	executorRepo executor.Repo,
-	taskRepo task.Repo) IExecutorAPI {
+	taskRepo task.Repo,
+	usecase *executor.Usecase,
+) IExecutorAPI {
 	return &ExecutorAPI{
-		db:           db,
 		logger:       logger,
 		mu:           sync.RWMutex{},
 		executorRepo: executorRepo,
 		taskRepo:     taskRepo,
-		usecase:      executor.NewUsecase(executorRepo),
+		usecase:      usecase,
 	}
 }
 

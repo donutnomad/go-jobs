@@ -7,19 +7,11 @@ import (
 	"time"
 
 	"github.com/jobs/scheduler/internal/biz/executor"
-	"github.com/jobs/scheduler/internal/infra/persistence/executorrepo"
-	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/pkg/config"
 	"go.uber.org/zap"
 )
 
-type ITaskRunner interface {
-	RemoveBreaker(executorID uint64)
-	ResetBreaker(executorID uint64)
-}
-
 type HealthChecker struct {
-	storage      *orm.Storage
 	logger       *zap.Logger
 	config       config.HealthCheckConfig
 	httpClient   *http.Client
@@ -29,12 +21,10 @@ type HealthChecker struct {
 	executorRepo executor.Repo
 }
 
-func NewHealthChecker(storage *orm.Storage, logger *zap.Logger, config config.HealthCheckConfig,
-	taskRunner ITaskRunner, executorRepo executor.Repo) *HealthChecker {
+func NewHealthChecker(logger *zap.Logger, config config.HealthCheckConfig, taskRunner ITaskRunner, executorRepo executor.Repo) *HealthChecker {
 	return &HealthChecker{
-		storage: storage,
-		logger:  logger,
-		config:  config,
+		logger: logger,
+		config: config,
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
 		},
@@ -175,7 +165,7 @@ func (h *HealthChecker) checkExecutor(exe *executor.Executor) {
 	}
 
 	// 保存更新
-	if err := executorrepo.NewMysqlRepositoryImpl(h.storage.DB()).Save(ctx, exe); err != nil {
+	if err := h.executorRepo.Save(ctx, exe); err != nil {
 		h.logger.Error("failed to update executor health status",
 			zap.Uint64("executor_id", exe.ID),
 			zap.Error(err))

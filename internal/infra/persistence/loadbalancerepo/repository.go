@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/wire"
 	domain "github.com/jobs/scheduler/internal/biz/load_balance"
 	"github.com/jobs/scheduler/internal/infra/persistence/commonrepo"
 	"gorm.io/gorm"
 )
+
+var Provider = wire.NewSet(NewMysqlRepositoryImpl)
 
 type MysqlRepositoryImpl struct {
 	commonrepo.DefaultRepo

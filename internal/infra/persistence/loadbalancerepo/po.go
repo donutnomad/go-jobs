@@ -28,13 +28,14 @@ func (po *LoadBalanceStatePO) ToDomain() *domain.LoadBalanceState {
 }
 
 func (po *LoadBalanceStatePO) FromDomain(d *domain.LoadBalanceState) *LoadBalanceStatePO {
-	po.ID = d.ID
-	po.TaskID = d.TaskID
-	po.RoundRobinIndex = d.RoundRobinIndex
-	po.LastExecutorID = d.LastExecutorID
-	if !d.UpdatedAt.IsZero() {
-		po.UpdatedAt = d.UpdatedAt
+	return &LoadBalanceStatePO{
+		Mode: commonrepo.Mode{
+			ID:        d.ID,
+			CreatedAt: d.CreatedAt,
+			UpdatedAt: d.UpdatedAt,
+		},
+		TaskID:          d.TaskID,
+		RoundRobinIndex: d.RoundRobinIndex,
+		LastExecutorID:  d.LastExecutorID,
 	}
-	po.CreatedAt = d.CreatedAt
-	return po
 }

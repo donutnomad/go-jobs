@@ -13,7 +13,6 @@ import (
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/task"
 	"github.com/jobs/scheduler/internal/loadbalance"
-	"github.com/jobs/scheduler/internal/orm"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
@@ -78,7 +77,6 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 
 // TaskRunner 任务执行器
 type TaskRunner struct {
-	storage       *orm.Storage
 	lbManager     *loadbalance.Manager
 	logger        *zap.Logger
 	httpClient    *http.Client
@@ -107,30 +105,32 @@ type taskJob struct {
 	execution *execution.TaskExecution
 }
 
+type TaskRunnerConfig struct {
+	MaxWorkers  int
+	CallbackURL func(id uint64) string
+}
+
 // NewTaskRunner 创建任务执行器
 func NewTaskRunner(
-	storage *orm.Storage,
 	lbManager *loadbalance.Manager,
 	logger *zap.Logger,
-	maxWorkers int,
-	callbackURL func(id uint64) string,
+	cfg TaskRunnerConfig,
 	taskRepo task.Repo,
 	executionRepo execution.Repo,
 	executorRepo executor.Repo,
 ) *TaskRunner {
 	return &TaskRunner{
-		storage:   storage,
 		lbManager: lbManager,
 		logger:    logger,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		maxWorkers:    maxWorkers,
-		taskCh:        make(chan *taskJob, maxWorkers*2),
+		maxWorkers:    cfg.MaxWorkers,
+		taskCh:        make(chan *taskJob, cfg.MaxWorkers*2),
 		stopCh:        make(chan struct{}),
 		timeouts:      make(map[uint64]*time.Timer),
 		breakers:      make(map[uint64]*CircuitBreaker),
-		callbackURL:   callbackURL,
+		callbackURL:   cfg.CallbackURL,
 		taskRepo:      taskRepo,
 		executionRepo: executionRepo,
 		executorRepo:  executorRepo,

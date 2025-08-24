@@ -15,11 +15,6 @@ import (
 	"time"
 
 	"github.com/jobs/scheduler/internal/api"
-	"github.com/jobs/scheduler/internal/infra/persistence/executionrepo"
-	"github.com/jobs/scheduler/internal/infra/persistence/executorrepo"
-	"github.com/jobs/scheduler/internal/infra/persistence/loadbalancerepo"
-	"github.com/jobs/scheduler/internal/infra/persistence/schedulerinstancerepo"
-	"github.com/jobs/scheduler/internal/infra/persistence/taskrepo"
 	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/internal/scheduler"
 	"github.com/jobs/scheduler/pkg/config"
@@ -27,6 +22,16 @@ import (
 	"github.com/yitter/idgenerator-go/idgen"
 	"go.uber.org/zap"
 )
+
+type App struct {
+	sched      *scheduler.Scheduler
+	emitter    scheduler.IEmitter
+	httpServer *api.Server
+}
+
+func NewApp(sched *scheduler.Scheduler, emitter scheduler.IEmitter, httpServer *api.Server) *App {
+	return &App{sched: sched, emitter: emitter, httpServer: httpServer}
+}
 
 func main() {
 	// 解析命令行参数
@@ -79,48 +84,19 @@ func main() {
 	}
 	defer db.Close()
 
-	myIP := cfg.Server.IP
-	if myIP == "" {
-		zapLogger.Fatal("Failed to get cfg.server.ip address")
-	}
-
-	// 创建repositories
-	taskRepo := taskrepo.NewMysqlRepositoryImpl(db.DB())
-	executionRepo := executionrepo.NewMysqlRepositoryImpl(db.DB())
-	executorRepo := executorrepo.NewMysqlRepositoryImpl(db.DB())
-	schedulerInstanceRepo := schedulerinstancerepo.NewMysqlRepositoryImpl(db.DB())
-	loadBalanceRepo := loadbalancerepo.NewMysqlRepositoryImpl(db.DB())
-
-	// 创建调度器
-	sched, err := scheduler.New(
-		*cfg, 
-		db, 
-		zapLogger, 
-		api.ExecutionCallbackURL(net.JoinHostPort(myIP, strconv.Itoa(cfg.Server.Port)), false),
-		taskRepo,
-		executionRepo,
-		executorRepo,
-		schedulerInstanceRepo,
-		loadBalanceRepo,
-	)
+	app, err := InitilizeApp(zapLogger, *cfg, db.DB())
 	if err != nil {
-		zapLogger.Fatal("Failed to create scheduler", zap.Error(err))
+		panic(err)
 	}
 
 	// 启动调度器
-	if err := sched.Start(); err != nil {
+	if err := app.sched.Start(); err != nil {
 		zapLogger.Fatal("Failed to start scheduler", zap.Error(err))
 	}
-
-	var emitter = api.NewEventBus(sched, sched.GetTaskRunner())
-
-	// 创建API服务器
-	apiServer := api.NewServer(db, emitter, zapLogger)
-
 	// 启动HTTP服务器
 	httpServer := &http.Server{
 		Addr:           fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler:        apiServer.Router(),
+		Handler:        app.httpServer.Router(),
 		ReadTimeout:    cfg.Server.ReadTimeout,
 		WriteTimeout:   cfg.Server.WriteTimeout,
 		MaxHeaderBytes: cfg.Server.MaxHeaderBytes,
@@ -149,9 +125,27 @@ func main() {
 	}
 
 	// 停止调度器
-	if err := sched.Stop(); err != nil {
+	if err := app.sched.Stop(); err != nil {
 		zapLogger.Error("Failed to stop scheduler", zap.Error(err))
 	}
 
 	zapLogger.Info("Shutdown complete")
+}
+
+func ProvideHealthCheckConfig(cfg config.Config) config.HealthCheckConfig {
+	return cfg.HealthCheck
+}
+
+func ProvideTaskRunnerConfig(cfg config.Config) (scheduler.TaskRunnerConfig, error) {
+	myIP := cfg.Server.IP
+	if myIP == "" {
+		return scheduler.TaskRunnerConfig{}, fmt.Errorf("failed to get cfg.server.ip address")
+	}
+
+	taskRunnerCfg := scheduler.TaskRunnerConfig{
+		MaxWorkers:  cfg.Scheduler.MaxWorkers,
+		CallbackURL: api.ExecutionCallbackURL(net.JoinHostPort(myIP, strconv.Itoa(cfg.Server.Port)), false),
+	}
+
+	return taskRunnerCfg, nil
 }

@@ -1,7 +1,6 @@
 package schedulerinstancerepo
 
 import (
-	domain "github.com/jobs/scheduler/internal/biz/scheduler_instance"
 	"github.com/jobs/scheduler/internal/infra/persistence/commonrepo"
 )
 
@@ -15,31 +14,4 @@ type SchedulerInstancePO struct {
 
 func (SchedulerInstancePO) TableName() string {
 	return "jobs_scheduler_instances"
-}
-
-func (po *SchedulerInstancePO) ToDomain() *domain.SchedulerInstance {
-	return &domain.SchedulerInstance{
-		ID:         po.ID,
-		InstanceID: po.InstanceID,
-		Host:       po.Host,
-		Port:       po.Port,
-		IsLeader:   po.IsLeader,
-		CreatedAt:  po.CreatedAt,
-		UpdatedAt:  po.UpdatedAt,
-	}
-}
-
-func (po *SchedulerInstancePO) FromDomain(d *domain.SchedulerInstance) *SchedulerInstancePO {
-	po.InstanceID = d.InstanceID
-	po.Host = d.Host
-	po.Port = d.Port
-	po.IsLeader = d.IsLeader
-	po.ID = d.ID
-	if !d.CreatedAt.IsZero() {
-		po.CreatedAt = d.CreatedAt
-	}
-	if !d.UpdatedAt.IsZero() {
-		po.UpdatedAt = d.UpdatedAt
-	}
-	return po
 }

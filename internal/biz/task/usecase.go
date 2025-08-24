@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/wire"
 	"github.com/samber/mo"
 )
+
+var Provider = wire.NewSet(NewUsecase)
 
 type Usecase struct {
 	repo Repo

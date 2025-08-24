@@ -8,12 +8,10 @@ import (
 	"time"
 
 	"github.com/jobs/scheduler/internal/biz/execution"
-	"github.com/jobs/scheduler/internal/biz/executor"
-	"github.com/jobs/scheduler/internal/biz/load_balance"
 	"github.com/jobs/scheduler/internal/biz/scheduler_instance"
 	"github.com/jobs/scheduler/internal/biz/task"
+	"github.com/jobs/scheduler/internal/infra/persistence/commonrepo"
 	"github.com/jobs/scheduler/internal/loadbalance"
-	"github.com/jobs/scheduler/internal/orm"
 	"github.com/jobs/scheduler/pkg/config"
 	"github.com/robfig/cron/v3"
 	"github.com/yitter/idgenerator-go/idgen"
@@ -23,7 +21,6 @@ import (
 // Scheduler 任务调度器
 type Scheduler struct {
 	config        config.SchedulerConfig
-	storage       *orm.Storage
 	sqlDB         *sql.DB
 	locker        *Locker
 	cron          *cron.Cron
@@ -48,43 +45,40 @@ type Scheduler struct {
 // New 创建调度器
 func New(
 	cfg config.Config,
-	storage *orm.Storage,
+	db commonrepo.DB,
 	logger *zap.Logger,
-	callbackURL func(uint64) string,
+
+	taskRunner *TaskRunner,
+	lbManager *loadbalance.Manager,
+	checker *HealthChecker,
+
 	taskRepo task.Repo,
 	executionRepo execution.Repo,
-	executorRepo executor.Repo,
 	schedulerInstanceRepo scheduler_instance.Repo,
-	loadBalanceRepo load_balance.Repo,
 ) (*Scheduler, error) {
-	sqlDB, err := storage.DB().DB()
+	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sql.DB: %w", err)
 	}
 
 	s := &Scheduler{
 		config:                cfg.Scheduler,
-		storage:               storage,
 		sqlDB:                 sqlDB,
 		logger:                logger,
 		instanceID:            cfg.Scheduler.InstanceID,
 		isLeader:              false,
 		stopCh:                make(chan struct{}),
-		lbManager:             loadbalance.NewManager(loadBalanceRepo, taskRepo, executionRepo),
+		lbManager:             lbManager,
 		cron:                  cron.New(cron.WithSeconds()),
 		taskRepo:              taskRepo,
 		executionRepo:         executionRepo,
 		schedulerInstanceRepo: schedulerInstanceRepo,
+		taskRunner:            taskRunner,
+		healthChecker:         checker,
 	}
 
 	// 创建分布式锁
 	s.locker = NewLocker(sqlDB, cfg.Scheduler.LockKey, cfg.Scheduler.LockTimeout, logger)
-
-	// 创建任务执行器
-	s.taskRunner = NewTaskRunner(storage, s.lbManager, logger, cfg.Scheduler.MaxWorkers, callbackURL, taskRepo, executionRepo, executorRepo)
-
-	// Executor健康检查
-	s.healthChecker = NewHealthChecker(storage, logger, cfg.HealthCheck, s.taskRunner, executorRepo)
 
 	// 注册调度器实例
 	if err := s.registerInstance(); err != nil {

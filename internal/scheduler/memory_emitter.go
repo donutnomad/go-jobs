@@ -1,21 +1,11 @@
-package api
-
-import (
-	"github.com/jobs/scheduler/internal/scheduler"
-)
-
-type IEmitter interface {
-	SubmitNewTask(taskID uint64, parameters map[string]any, executionID uint64) error
-	ReloadTasks() error
-	CancelExecutionTimer(executionID uint64) error
-}
+package scheduler
 
 type EventBus struct {
-	scheduler  *scheduler.Scheduler
-	taskRunner *scheduler.TaskRunner
+	scheduler  *Scheduler
+	taskRunner ITaskRunner
 }
 
-func NewEventBus(scheduler *scheduler.Scheduler, taskRunner *scheduler.TaskRunner) *EventBus {
+func NewEventBus(scheduler *Scheduler, taskRunner ITaskRunner) *EventBus {
 	return &EventBus{scheduler: scheduler, taskRunner: taskRunner}
 }
 

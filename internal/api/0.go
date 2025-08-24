@@ -4,6 +4,15 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/wire"
+)
+
+var Provider = wire.NewSet(
+	NewExecutionAPI,
+	NewExecutorAPI,
+	NewTaskAPI,
+	NewCommonAPI,
+	NewServer,
 )
 
 //go:generate go tool github.com/donutnomad/gotoolkit/swagGen -path . -out 0api_generated.go

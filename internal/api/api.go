@@ -5,9 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jobs/scheduler/internal/biz/scheduler_instance"
-	"github.com/jobs/scheduler/internal/infra/persistence/schedulerinstancerepo"
 	"github.com/samber/lo"
-	"gorm.io/gorm"
 )
 
 type ICommonAPI interface {
@@ -23,14 +21,12 @@ type ICommonAPI interface {
 }
 
 type CommonAPI struct {
-	db                    *gorm.DB
 	schedulerInstanceRepo scheduler_instance.Repo
 }
 
-func NewCommonAPI(db *gorm.DB) ICommonAPI {
+func NewCommonAPI(repo scheduler_instance.Repo) ICommonAPI {
 	return &CommonAPI{
-		db:                    db,
-		schedulerInstanceRepo: schedulerinstancerepo.NewMysqlRepositoryImpl(db),
+		schedulerInstanceRepo: repo,
 	}
 }
 

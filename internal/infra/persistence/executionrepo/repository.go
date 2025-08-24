@@ -5,11 +5,14 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/wire"
 	domain "github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/infra/persistence/commonrepo"
 	"github.com/yitter/idgenerator-go/idgen"
 	"gorm.io/gorm"
 )
+
+var Provider = wire.NewSet(NewMysqlRepositoryImpl)
 
 type MysqlRepositoryImpl struct {
 	commonrepo.DefaultRepo
@@ -197,15 +200,15 @@ func (r *MysqlRepositoryImpl) GetAvgDuration(ctx context.Context, taskID uint64,
 		Where("end_time IS NOT NULL").
 		Select("AVG(TIMESTAMPDIFF(SECOND, start_time, end_time))").
 		Scan(&avgDuration).Error
-	
+
 	if err != nil {
 		return 0, err
 	}
-	
+
 	// 如果没有匹配的记录，AVG返回NULL，返回0
 	if avgDuration == nil {
 		return 0, nil
 	}
-	
+
 	return *avgDuration, nil
 }

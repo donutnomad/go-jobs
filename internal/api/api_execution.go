@@ -13,10 +13,10 @@ import (
 	"github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/task"
+	"github.com/jobs/scheduler/internal/scheduler"
 	"github.com/samber/lo"
 	"github.com/samber/mo"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 type IExecutionAPI interface {
@@ -57,17 +57,16 @@ func ExecutionCallbackURL(listenAddr string, isTLS bool) func(uint64) string {
 }
 
 type ExecutionAPI struct {
-	db      *gorm.DB
 	logger  *zap.Logger
-	emitter IEmitter
+	emitter scheduler.IEmitter
 
 	executionRepo execution.Repo
 	taskRepo      task.Repo
 	executorRepo  executor.Repo
 }
 
-func NewExecutionAPI(db *gorm.DB, logger *zap.Logger, emitter IEmitter, executionRepo execution.Repo, taskRepo task.Repo, executorRepo executor.Repo) *ExecutionAPI {
-	return &ExecutionAPI{db: db, logger: logger, emitter: emitter, executionRepo: executionRepo, taskRepo: taskRepo, executorRepo: executorRepo}
+func NewExecutionAPI(logger *zap.Logger, emitter scheduler.IEmitter, executionRepo execution.Repo, taskRepo task.Repo, executorRepo executor.Repo) IExecutionAPI {
+	return &ExecutionAPI{logger: logger, emitter: emitter, executionRepo: executionRepo, taskRepo: taskRepo, executorRepo: executorRepo}
 }
 
 func (e *ExecutionAPI) Get(ctx *gin.Context, id uint64) (*TaskExecutionResp, error) {

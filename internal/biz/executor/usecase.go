@@ -1,6 +1,12 @@
 package executor
 
-import "context"
+import (
+	"context"
+
+	"github.com/google/wire"
+)
+
+var Provider = wire.NewSet(NewUsecase)
 
 type Usecase struct {
 	executorRepo Repo

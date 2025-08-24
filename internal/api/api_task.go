@@ -10,11 +10,11 @@ import (
 	"github.com/jobs/scheduler/internal/biz/execution"
 	"github.com/jobs/scheduler/internal/biz/executor"
 	"github.com/jobs/scheduler/internal/biz/task"
+	"github.com/jobs/scheduler/internal/scheduler"
 	"github.com/samber/lo"
 	"github.com/samber/mo"
 	"github.com/yitter/idgenerator-go/idgen"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 type ITaskAPI interface {
@@ -85,17 +85,15 @@ type ITaskAPI interface {
 }
 
 type TaskAPI struct {
-	db            *gorm.DB
-	emitter       IEmitter
+	emitter       scheduler.IEmitter
 	usecase       *task.Usecase
 	repo          task.Repo
 	executionRepo execution.Repo
 	executorRepo  executor.Repo
 }
 
-func NewTaskAPI(db *gorm.DB, emitter IEmitter, usecase *task.Usecase, repo task.Repo, executionRepo execution.Repo, executorRepo executor.Repo) ITaskAPI {
+func NewTaskAPI(emitter scheduler.IEmitter, usecase *task.Usecase, repo task.Repo, executionRepo execution.Repo, executorRepo executor.Repo) ITaskAPI {
 	return &TaskAPI{
-		db:            db,
 		emitter:       emitter,
 		usecase:       usecase,
 		repo:          repo,
