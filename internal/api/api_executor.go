@@ -210,7 +210,7 @@ func (e *ExecutorAPI) Register(ctx *gin.Context, req RegisterExecutorReq) (*Exec
 			}
 		} else {
 			// 完整模式：原有逻辑
-			return e.executorRepo.Execute(ctx, func(ctx context.Context) error {
+			err := e.executorRepo.Execute(ctx, func(ctx context.Context) error {
 				exec, err = e.executorRepo.GetByInstanceID(ctx, req.ExecutorID)
 				if err != nil {
 					return err
@@ -259,6 +259,9 @@ func (e *ExecutorAPI) Register(ctx *gin.Context, req RegisterExecutorReq) (*Exec
 				}
 				return nil
 			})
+			if err != nil {
+				return err
+			}
 		}
 
 		// 注册任务（两种模式都支持）
