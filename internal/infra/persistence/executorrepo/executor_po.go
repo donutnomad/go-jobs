@@ -10,6 +10,7 @@ import (
 
 type Executor struct {
 	commonrepo.Mode
+	InstanceID          string                `gorm:"column:instance_id;size:255;not null"`
 	Name                string                `gorm:"column:name;size:255;not null;index:idx_name_instance"`
 	BaseURL             string                `gorm:"column:base_url;size:500;not null"`
 	HealthCheckURL      string                `gorm:"column:health_check_url;size:500"`

@@ -48,9 +48,9 @@ func (m *MysqlRepositoryImpl) GetByID(ctx context.Context, id uint64) (*domain.E
 	return po.ToDomain(), nil
 }
 
-func (m *MysqlRepositoryImpl) GetByInstanceID(ctx context.Context, instanceID uint64) (*domain.Executor, error) {
+func (m *MysqlRepositoryImpl) GetByInstanceID(ctx context.Context, instanceID string) (*domain.Executor, error) {
 	var po Executor
-	if err := m.Db(ctx).Where("id = ?", instanceID).First(&po).Error; err != nil {
+	if err := m.Db(ctx).Where("instance_id = ?", instanceID).First(&po).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}

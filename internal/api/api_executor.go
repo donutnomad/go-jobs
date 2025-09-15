@@ -12,7 +12,6 @@ import (
 	"github.com/jobs/scheduler/internal/biz/task"
 	"github.com/samber/lo"
 	"github.com/samber/mo"
-	"github.com/spf13/cast"
 	"github.com/yitter/idgenerator-go/idgen"
 	"go.uber.org/zap"
 )
@@ -211,53 +210,55 @@ func (e *ExecutorAPI) Register(ctx *gin.Context, req RegisterExecutorReq) (*Exec
 			}
 		} else {
 			// 完整模式：原有逻辑
-			exec, err = e.executorRepo.GetByID(ctx, cast.ToUint64(req.ExecutorID))
-			if err != nil {
-				return err
-			}
-			if exec != nil {
-				// 如果执行器已存在且在线，拒绝注册（防止挤掉别人）
-				if exec.Status == executor.ExecutorStatusOnline {
-					// 检查是否是同一个执行器重新注册（通过 BaseURL 判断）
-					if exec.BaseURL != req.ExecutorURL {
-						return fmt.Errorf("executor with instance_id %s is already online from different location (current: %s, new: %s)",
-							req.ExecutorID, exec.BaseURL, req.ExecutorURL)
+			return e.executorRepo.Execute(ctx, func(ctx context.Context) error {
+				exec, err = e.executorRepo.GetByInstanceID(ctx, req.ExecutorID)
+				if err != nil {
+					return err
+				}
+				if exec != nil {
+					// 如果执行器已存在且在线，拒绝注册（防止挤掉别人）
+					if exec.Status == executor.ExecutorStatusOnline {
+						// 检查是否是同一个执行器重新注册（通过 BaseURL 判断）
+						if exec.BaseURL != req.ExecutorURL {
+							return fmt.Errorf("executor with instance_id %s is already online from different location (current: %s, new: %s)",
+								req.ExecutorID, exec.BaseURL, req.ExecutorURL)
+						}
+					}
+
+					// 更新现有执行器信息
+					exec.Name = req.ExecutorName
+					exec.BaseURL = req.ExecutorURL
+					exec.HealthCheckURL = req.HealthCheckURL
+					exec.Status = executor.ExecutorStatusOnline
+					exec.IsHealthy = true
+					exec.HealthCheckFailures = 0
+					exec.LastHealthCheck = lo.ToPtr(time.Now())
+
+					if err := e.executorRepo.Save(ctx, exec); err != nil {
+						return fmt.Errorf("failed to update executor: %w", err)
+					}
+				} else {
+					// 不存在
+					exec = &executor.Executor{
+						ID:                  uint64(idgen.NextId()),
+						CreatedAt:           time.Time{},
+						UpdatedAt:           time.Time{},
+						Name:                req.ExecutorName,
+						InstanceID:          req.ExecutorID,
+						BaseURL:             req.ExecutorURL,
+						HealthCheckURL:      req.HealthCheckURL,
+						Status:              executor.ExecutorStatusOnline,
+						IsHealthy:           true,
+						LastHealthCheck:     lo.ToPtr(time.Now()),
+						HealthCheckFailures: 0,
+						Metadata:            req.Metadata,
+					}
+					if err := e.executorRepo.Create(ctx, exec); err != nil {
+						return fmt.Errorf("failed to create executor: %w", err)
 					}
 				}
-
-				// 更新现有执行器信息
-				exec.Name = req.ExecutorName
-				exec.InstanceID = req.ExecutorID
-				exec.BaseURL = req.ExecutorURL
-				exec.HealthCheckURL = req.HealthCheckURL
-				exec.Status = executor.ExecutorStatusOnline
-				exec.IsHealthy = true
-				exec.HealthCheckFailures = 0
-				exec.LastHealthCheck = lo.ToPtr(time.Now())
-
-				if err := e.executorRepo.Save(ctx, exec); err != nil {
-					return fmt.Errorf("failed to update executor: %w", err)
-				}
-			} else {
-				// 不存在
-				exec = &executor.Executor{
-					ID:                  uint64(idgen.NextId()),
-					Name:                req.ExecutorName,
-					InstanceID:          req.ExecutorID,
-					BaseURL:             req.ExecutorURL,
-					HealthCheckURL:      req.HealthCheckURL,
-					CreatedAt:           time.Time{},
-					UpdatedAt:           time.Time{},
-					Status:              executor.ExecutorStatusOnline,
-					IsHealthy:           true,
-					LastHealthCheck:     lo.ToPtr(time.Now()),
-					HealthCheckFailures: 0,
-					Metadata:            req.Metadata,
-				}
-				if err := e.executorRepo.Create(ctx, exec); err != nil {
-					return fmt.Errorf("failed to create executor: %w", err)
-				}
-			}
+				return nil
+			})
 		}
 
 		// 注册任务（两种模式都支持）
