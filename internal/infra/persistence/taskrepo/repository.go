@@ -165,6 +165,9 @@ func (r *MysqlRepositoryImpl) UpdateAssignment(ctx context.Context, id uint64, p
 func (r *MysqlRepositoryImpl) GetAssignmentByTaskIDAndExecutorName(ctx context.Context, taskID uint64, executorName string) (*domain.TaskAssignment, error) {
 	var po TaskAssignmentPo
 	if err := r.Db(ctx).Where("task_id = ? AND executor_name = ?", taskID, executorName).First(&po).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return po.ToDomain(), nil
