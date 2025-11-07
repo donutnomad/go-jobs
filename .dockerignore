@@ -1,0 +1,60 @@
+# 构建产物
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# 配置文件（通过挂载提供）
+configs/*.yaml
+configs/*.yml
+!configs/config.example.yaml
+
+# 日志文件
+logs/
+*.log
+
+# 依赖和缓存
+vendor/
+go.work
+go.work.sum
+
+# IDE 和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# 文档
+*.md
+!README.md
+
+# 测试
+coverage.txt
+*.test
+*.prof
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 前端项目
+scheduler-ui/
+
+# 示例代码
+examples/
+
+# 其他
+.env
+.env.local
