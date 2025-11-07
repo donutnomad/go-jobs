@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -46,13 +47,21 @@ type IExecutionAPI interface {
 	Stop(ctx *gin.Context, id uint64) (string, error)
 }
 
-func ExecutionCallbackURL(listenAddr string, isTLS bool) func(uint64) string {
+// ExecutionCallbackURL 创建回调 URL 生成函数
+// 如果 baseURL 是完整 URL（以 http:// 或 https:// 开头），则直接使用
+// 否则使用 listenAddr 和 isTLS 参数构造 URL
+func ExecutionCallbackURL(baseURL string, isTLS bool) func(uint64) string {
 	return func(id uint64) string {
+		// 如果 baseURL 已经是完整 URL（包含协议），直接使用
+		if strings.HasPrefix(baseURL, "http://") || strings.HasPrefix(baseURL, "https://") {
+			return fmt.Sprintf("%s/api/v1/executions/%d/callback", strings.TrimSuffix(baseURL, "/"), id)
+		}
+		// 否则使用传统方式构造
 		var prefix = "http"
 		if isTLS {
 			prefix = "https"
 		}
-		return fmt.Sprintf("%s://%s/api/v1/executions/%d/callback", prefix, listenAddr, id)
+		return fmt.Sprintf("%s://%s/api/v1/executions/%d/callback", prefix, baseURL, id)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -142,9 +143,18 @@ func ProvideTaskRunnerConfig(cfg config.Config) (scheduler.TaskRunnerConfig, err
 		return scheduler.TaskRunnerConfig{}, fmt.Errorf("failed to get cfg.server.ip address")
 	}
 
+	var baseURL string
+	// 如果 IP 配置是完整 URL（以 http:// 或 https:// 开头），直接使用
+	if strings.HasPrefix(myIP, "http://") || strings.HasPrefix(myIP, "https://") {
+		baseURL = myIP
+	} else {
+		// 否则使用传统方式：IP:Port
+		baseURL = net.JoinHostPort(myIP, strconv.Itoa(cfg.Server.Port))
+	}
+
 	taskRunnerCfg := scheduler.TaskRunnerConfig{
 		MaxWorkers:  cfg.Scheduler.MaxWorkers,
-		CallbackURL: api.ExecutionCallbackURL(net.JoinHostPort(myIP, strconv.Itoa(cfg.Server.Port)), false),
+		CallbackURL: api.ExecutionCallbackURL(baseURL, false),
 	}
 
 	return taskRunnerCfg, nil

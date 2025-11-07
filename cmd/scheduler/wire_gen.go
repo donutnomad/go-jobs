@@ -38,7 +38,7 @@ func InitilizeApp(logger *zap.Logger, cfg config.Config, db commonrepo.DB) (*App
 	healthCheckConfig := ProvideHealthCheckConfig(cfg)
 	healthChecker := scheduler.NewHealthChecker(logger, healthCheckConfig, taskRunner, executorRepo)
 	scheduler_instanceRepo := schedulerinstancerepo.NewMysqlRepositoryImpl(db)
-	client := ProvideRedisClient(cfg)
+	client := ProvideRedisClient(cfg, logger)
 	schedulerScheduler, err := scheduler.New(cfg, db, logger, taskRunner, manager, healthChecker, taskRepo, executionRepo, scheduler_instanceRepo, client)
 	if err != nil {
 		return nil, err
