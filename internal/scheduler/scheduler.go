@@ -110,6 +110,10 @@ func (s *Scheduler) Start() error {
 	// 启动任务执行器
 	s.taskRunner.Start()
 
+	// 启动心跳goroutine
+	s.wg.Add(1)
+	go s.heartbeatLoop()
+
 	// 启动领导者选举
 	s.wg.Add(1)
 	go s.leaderElection()
@@ -269,15 +273,39 @@ func (s *Scheduler) registerInstance() error {
 		if err := s.schedulerInstanceRepo.Create(ctx, instance); err != nil {
 			return fmt.Errorf("failed to create scheduler instance: %w", err)
 		}
+		s.logger.Info("scheduler instance registered", zap.String("instance_id", s.instanceID))
 	} else {
 		// 更新现有实例
 		existing.IsLeader = false
 		if err := s.schedulerInstanceRepo.Save(ctx, existing); err != nil {
 			return fmt.Errorf("failed to update scheduler instance: %w", err)
 		}
+		s.logger.Info("scheduler instance updated", zap.String("instance_id", s.instanceID))
 	}
 
 	return nil
+}
+
+// heartbeatLoop 定期更新实例心跳
+func (s *Scheduler) heartbeatLoop() {
+	defer s.wg.Done()
+
+	ticker := time.NewTicker(s.config.HeartbeatInterval / 2) // 心跳频率为选举间隔的一半
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			ctx := context.Background()
+			if err := s.schedulerInstanceRepo.UpdateHeartbeat(ctx, s.instanceID); err != nil {
+				s.logger.Error("failed to update heartbeat",
+					zap.String("instance_id", s.instanceID),
+					zap.Error(err))
+			}
+		case <-s.stopCh:
+			return
+		}
+	}
 }
 
 // leaderElection 领导者选举
@@ -299,14 +327,42 @@ func (s *Scheduler) leaderElection() {
 
 // tryBecomeLeader 尝试成为领导者
 func (s *Scheduler) tryBecomeLeader() {
+	// 检查是否正在关闭
+	select {
+	case <-s.stopCh:
+		return
+	default:
+	}
+
+	// 创建可以被stopCh取消的context
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.LockTimeout)
 	defer cancel()
 
+	// 启动goroutine监听stopCh，如果关闭则取消context
+	go func() {
+		select {
+		case <-s.stopCh:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
 	if !s.IsLeader() {
+		s.logger.Debug("attempting to acquire leader lock",
+			zap.String("instance_id", s.instanceID))
+
 		// 尝试获取锁
 		locked, err := s.locker.TryLock(ctx)
 		if err != nil {
-			s.logger.Error("failed to acquire leader lock", zap.Error(err))
+			// 如果是context取消（服务正在关闭），不记录为错误
+			if ctx.Err() == context.Canceled {
+				s.logger.Debug("leader lock acquisition cancelled due to shutdown",
+					zap.String("instance_id", s.instanceID))
+				return
+			}
+			s.logger.Error("failed to acquire leader lock",
+				zap.String("instance_id", s.instanceID),
+				zap.Error(err))
 			return
 		}
 
@@ -316,6 +372,11 @@ func (s *Scheduler) tryBecomeLeader() {
 			s.logger.Info("became leader",
 				zap.String("instance_id", s.instanceID))
 
+			// 恢复遗留的执行任务（服务重启后的清理工作）
+			if err := s.recoverOrphanedExecutions(); err != nil {
+				s.logger.Error("failed to recover orphaned executions", zap.Error(err))
+			}
+
 			// 加载并调度任务
 			if err := s.loadAndScheduleTasks(); err != nil {
 				s.logger.Error("failed to load and schedule tasks", zap.Error(err))
@@ -323,18 +384,39 @@ func (s *Scheduler) tryBecomeLeader() {
 
 			// 启动cron调度器
 			s.cron.Start()
+			s.logger.Info("started cron scheduler as leader",
+				zap.String("instance_id", s.instanceID))
+		} else {
+			s.logger.Debug("could not acquire leader lock, will retry",
+				zap.String("instance_id", s.instanceID))
 		}
     } else {
+		s.logger.Debug("renewing leader lock",
+			zap.String("instance_id", s.instanceID))
+
         // 续约锁
         if err := s.locker.Renew(ctx); err != nil {
-            s.logger.Error("failed to renew leader lock", zap.Error(err))
+			// 如果是context取消（服务正在关闭），不记录为错误
+			if ctx.Err() == context.Canceled {
+				s.logger.Debug("leader lock renewal cancelled due to shutdown",
+					zap.String("instance_id", s.instanceID))
+				return
+			}
+            s.logger.Error("failed to renew leader lock, stepping down",
+				zap.String("instance_id", s.instanceID),
+				zap.Error(err))
             s.setLeader(false)
             s.updateInstanceStatus(false)
 
             // 停止cron调度器
             stopCtx := s.cron.Stop()
             <-stopCtx.Done()
-        }
+			s.logger.Info("stopped cron scheduler, no longer leader",
+				zap.String("instance_id", s.instanceID))
+        } else {
+			s.logger.Debug("successfully renewed leader lock",
+				zap.String("instance_id", s.instanceID))
+		}
     }
 }
 
@@ -416,6 +498,50 @@ func (s *Scheduler) ReloadTasks() error {
     return s.loadAndScheduleTasks()
 }
 
+// recoverOrphanedExecutions 恢复遗留的执行任务（服务重启后的清理工作）
+func (s *Scheduler) recoverOrphanedExecutions() error {
+	ctx := context.Background()
+
+	// 查询所有 pending 和 running 状态的执行记录
+	orphanedExecutions, err := s.executionRepo.FindByStatuses(ctx, []execution.ExecutionStatus{
+		execution.ExecutionStatusPending,
+		execution.ExecutionStatusRunning,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to find orphaned executions: %w", err)
+	}
+
+	if len(orphanedExecutions) == 0 {
+		s.logger.Info("no orphaned executions found")
+		return nil
+	}
+
+	s.logger.Info("recovering orphaned executions",
+		zap.Int("count", len(orphanedExecutions)))
+
+	// 将这些任务标记为失败
+	failedCount := 0
+	for _, exec := range orphanedExecutions {
+		exec.MarkFailed("Service restarted, execution was interrupted")
+		if err := s.executionRepo.Save(ctx, exec); err != nil {
+			s.logger.Error("failed to mark orphaned execution as failed",
+				zap.Uint64("execution_id", exec.ID),
+				zap.Error(err))
+			continue
+		}
+		failedCount++
+
+		// 取消超时定时器（如果存在）
+		s.taskRunner.CancelTimeout(exec.ID)
+	}
+
+	s.logger.Info("orphaned executions recovered",
+		zap.Int("total", len(orphanedExecutions)),
+		zap.Int("failed", failedCount))
+
+	return nil
+}
+
 func (s *Scheduler) CancelExecutionTimeout(executionID uint64) {
 	s.taskRunner.CancelTimeout(executionID)
 }
@@ -426,14 +552,41 @@ func (s *Scheduler) ScheduleNow(taskID uint64, parameters map[string]any) error 
             zap.Uint64("task_id", taskID))
         return ErrNotLeader
     }
+
+	ctx := context.Background()
+
+	// 加载任务信息
+	task_, err := s.taskRepo.GetByID(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("failed to load task: %w", err)
+	}
+	if task_ == nil {
+		return fmt.Errorf("task not found: %d", taskID)
+	}
+
+	// 检查执行模式
+	shouldExecute, err := s.checkExecutionMode(ctx, task_)
+	if err != nil {
+		s.logger.Error("failed to check execution mode",
+			zap.Uint64("task_id", taskID),
+			zap.Error(err))
+		return fmt.Errorf("failed to check execution mode: %w", err)
+	}
+
+	if !shouldExecute {
+		s.logger.Info("skipping task execution due to execution mode",
+			zap.Uint64("task_id", taskID),
+			zap.String("execution_mode", string(task_.ExecutionMode)))
+		return nil
+	}
+
     execution_ := execution.TaskExecution{
         ID:            uint64(idgen.NextId()),
         TaskID:        taskID,
         ScheduledTime: time.Now(),
         Status:        execution.ExecutionStatusPending,
 	}
-	ctx := context.Background()
-	err := s.executionRepo.Create(ctx, &execution_)
+	err = s.executionRepo.Create(ctx, &execution_)
 	if err != nil {
 		return err
 	}
@@ -513,13 +666,7 @@ func (s *Scheduler) checkExecutionMode(ctx context.Context, task_ *task.Task) (b
 		}
 
 		if count > 0 {
-			// 创建跳过记录
-			_, err := s.executionRepo.CreateSkipped(ctx, task_.ID, "Skipped due to execution mode")
-			if err != nil {
-				s.logger.Error("failed to create skipped execution",
-					zap.Uint64("task_id", task_.ID),
-					zap.Error(err))
-			}
+			// 有任务正在执行，返回false表示跳过，不创建任何记录
 			return false, nil
 		}
 		return true, nil

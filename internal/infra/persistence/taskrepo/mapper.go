@@ -3,6 +3,7 @@ package taskrepo
 import (
 	domain "github.com/jobs/scheduler/internal/biz/task"
 	"github.com/jobs/scheduler/internal/infra/persistence/commonrepo"
+	"gorm.io/datatypes"
 )
 
 func (po *TaskPo) FromDomain(in *domain.Task) *TaskPo {
@@ -75,7 +76,7 @@ func patchToMap(input *domain.TaskPatch) map[string]any {
 	}
 
 	if input.Parameters != nil {
-		values["parameters"] = *input.Parameters
+		values["parameters"] = datatypes.JSONMap(*input.Parameters)
 	}
 
 	if input.ExecutionMode != nil {

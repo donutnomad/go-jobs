@@ -90,7 +90,7 @@ function StatusBars({ data }: StatusBarsProps) {
                     </div>
                 </div>
                 <div className="text-xs text-gray-500">
-                    90天平均: <span className="font-semibold">{
+                    最近平均: <span className="font-semibold">{
                     data.length > 0
                         ? (data.reduce((sum, d) => sum + (d.total > 0 ? d.successRate : 100), 0) / data.length).toFixed(2)
                         : '0'
@@ -123,7 +123,7 @@ interface TaskExecutor {
     priority: number;
     weight: number;
     created_at: string;
-    executor: Executor;
+    executors: Executor[];
 }
 
 interface Executor {
@@ -263,8 +263,17 @@ function TaskDetailContent() {
     };
 
     const handleUnassign = async (assignment: TaskExecutor) => {
-        if (confirm(`确定要从该任务中移除执行器 "${assignment.executor.name}" 吗？`)) {
-            unassignMutation.mutate(assignment.executor.id);
+        // 使用第一个执行器实例的ID来解绑（后端会根据name解绑所有同名实例）
+        const executorId = assignment.executors?.[0]?.id;
+        const executorName = assignment.executor_name;
+
+        if (!executorId) {
+            alert('执行器信息不完整');
+            return;
+        }
+
+        if (confirm(`确定要从该任务中移除执行器 "${executorName}" 的所有实例吗？`)) {
+            unassignMutation.mutate(executorId);
         }
     };
 
@@ -319,7 +328,9 @@ function TaskDetailContent() {
         is_assigned: (task.task_executors || []).some(a => a.executor_name === executor.name)
     }));
 
-    const healthyCount = (task.task_executors || []).filter(a => a.executor.is_healthy && a.executor.status === 'online').length;
+    const healthyCount = (task.task_executors || []).reduce((count, a) => {
+        return count + (a.executors || []).filter(e => e.is_healthy && e.status === 'online').length;
+    }, 0);
     const totalWeight = (task.task_executors || []).reduce((sum, a) => sum + a.weight, 0);
 
     return (
@@ -352,7 +363,7 @@ function TaskDetailContent() {
               </span>
                         </div>
 
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-sm">
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 text-sm">
                             <div className="flex items-center space-x-2">
                                 <Clock className="w-4 h-4 text-gray-400" />
                                 <span className="text-gray-600">Cron:</span>
@@ -367,6 +378,11 @@ function TaskDetailContent() {
                                 <Server className="w-4 h-4 text-gray-400" />
                                 <span className="text-gray-600">负载均衡:</span>
                                 <span className="font-medium">{getStrategyText(task.load_balance_strategy)}</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <Clock className="w-4 h-4 text-gray-400" />
+                                <span className="text-gray-600">超时时间:</span>
+                                <span className="font-medium">{task.timeout_seconds}秒</span>
                             </div>
                             <div className="flex items-center space-x-2">
                                 <Users className="w-4 h-4 text-gray-400" />
@@ -424,7 +440,7 @@ function TaskDetailContent() {
             </div>
 
             {/* 统计信息 */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
                 <div className="bg-white rounded-lg p-4 border border-gray-200">
                     <div className="flex items-center justify-between">
                         <div>
@@ -465,29 +481,6 @@ function TaskDetailContent() {
                 <div className="bg-white rounded-lg p-4 border border-gray-200">
                     <div className="flex items-center justify-between">
                         <div>
-                            <p className="text-sm text-gray-600">90天健康度</p>
-                            <p className="text-2xl font-bold" style={{
-                                color: stats?.health_90d?.health_score >= 80 ? '#10b981' :
-                                    stats?.health_90d?.health_score >= 60 ? '#f59e0b' : '#ef4444'
-                            }}>
-                                {stats?.health_90d ? `${stats.health_90d.health_score?.toFixed(0)}` : '-'}
-                            </p>
-                            {stats?.health_90d && (
-                                <p className="text-xs text-gray-500 mt-1">
-                                    总执行: {stats.health_90d.total_count}
-                                </p>
-                            )}
-                        </div>
-                        <Shield className="w-8 h-8" style={{
-                            color: stats?.health_90d?.health_score >= 80 ? '#86efac' :
-                                stats?.health_90d?.health_score >= 60 ? '#fcd34d' : '#fca5a5'
-                        }} />
-                    </div>
-                </div>
-
-                <div className="bg-white rounded-lg p-4 border border-gray-200">
-                    <div className="flex items-center justify-between">
-                        <div>
                             <p className="text-sm text-gray-600">总权重</p>
                             <p className="text-2xl font-bold text-purple-600">{totalWeight}</p>
                         </div>
@@ -506,23 +499,23 @@ function TaskDetailContent() {
                 </div>
             </div>
 
-            {/* 90天服务状态图 */}
-            {stats?.daily_stats_90d && (
+            {/* 7天服务状态图 */}
+            {stats?.daily_stats_7d && (
                 <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
                     <div className="flex items-center justify-between mb-6">
                         <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                             <BarChart3 className="w-5 h-5 mr-2 text-gray-600" />
-                            90天服务状态
+                            7天服务状态
                         </h3>
                         <div className="text-sm text-gray-500">
                             总体健康度: <span className="font-semibold" style={{
-                            color: stats?.health_90d?.health_score >= 80 ? '#10b981' :
-                                stats?.health_90d?.health_score >= 60 ? '#f59e0b' : '#ef4444'
-                        }}>{stats?.health_90d?.health_score?.toFixed(1)}%</span>
+                            color: stats?.health_7d?.health_score >= 80 ? '#10b981' :
+                                stats?.health_7d?.health_score >= 60 ? '#f59e0b' : '#ef4444'
+                        }}>{stats?.health_7d?.health_score?.toFixed(1)}%</span>
                         </div>
                     </div>
                     <StatusBars
-                        data={stats.daily_stats_90d.map((day: any) => ({
+                        data={stats.daily_stats_7d.map((day: any) => ({
                             date: day.date,
                             successRate: day.successRate,
                             total: day.total
@@ -566,23 +559,31 @@ function TaskDetailContent() {
                             <tbody className="divide-y divide-gray-200">
                             {(task.task_executors || [])
                                 .sort((a, b) => b.priority - a.priority)
-                                .map((assignment) => (
-                                    <tr key={assignment.id} className="hover:bg-gray-50">
+                                .flatMap((assignment) =>
+                                    (assignment.executors || []).map((executor, index) => ({
+                                        assignment,
+                                        executor,
+                                        isFirst: index === 0,
+                                        executorCount: assignment.executors?.length || 0
+                                    }))
+                                )
+                                .map(({ assignment, executor, isFirst, executorCount }) => (
+                                    <tr key={`${assignment.id}-${executor.id}`} className="hover:bg-gray-50">
                                         <td className="px-6 py-4">
                                             <div className="flex items-center space-x-3">
                                                 <div className={`w-2 h-2 rounded-full ${
-                                                    assignment.executor.is_healthy && assignment.executor.status === 'online'
+                                                    executor.is_healthy && executor.status === 'online'
                                                         ? 'bg-green-400'
                                                         : 'bg-red-400'
                                                 }`} />
                                                 <div>
-                                                    <div className="font-medium text-gray-900">{assignment.executor.name}</div>
-                                                    <div className="text-sm text-gray-500">{assignment.executor.instance_id}</div>
+                                                    <div className="font-medium text-gray-900">{executor.name}</div>
+                                                    <div className="text-sm text-gray-500">{executor.instance_id}</div>
                                                 </div>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
-                                            {getStatusBadge(assignment.executor)}
+                                            {getStatusBadge(executor)}
                                         </td>
                                         <td className="px-6 py-4">
                       <span className="inline-flex items-center px-2 py-1 text-sm font-medium bg-purple-100 text-purple-800 rounded">
@@ -595,7 +596,7 @@ function TaskDetailContent() {
                       </span>
                                         </td>
                                         <td className="px-6 py-4">
-                                            <span className="text-sm text-gray-900">{assignment.executor.base_url}</span>
+                                            <span className="text-sm text-gray-900">{executor.base_url}</span>
                                         </td>
                                         <td className="px-6 py-4">
                       <span className="text-sm text-gray-500">
@@ -603,23 +604,27 @@ function TaskDetailContent() {
                       </span>
                                         </td>
                                         <td className="px-6 py-4 text-right">
-                                            <div className="flex items-center justify-end space-x-2">
-                                                <button
-                                                    onClick={() => setEditingAssignment(assignment)}
-                                                    className="p-1 text-gray-400 hover:text-gray-600"
-                                                    title="编辑分配"
-                                                >
-                                                    <Edit2 className="w-4 h-4" />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleUnassign(assignment)}
-                                                    className="p-1 text-gray-400 hover:text-red-600"
-                                                    title="移除分配"
-                                                    disabled={unassignMutation.isPending}
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
-                                            </div>
+                                            {isFirst && (
+                                                <div className="flex items-center justify-end space-x-2">
+                                                    <button
+                                                        onClick={() => setEditingAssignment(assignment)}
+                                                        className="p-1 text-gray-400 hover:text-gray-600"
+                                                        title="编辑分配"
+                                                    >
+                                                        <Edit2 className="w-4 h-4" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleUnassign(assignment)}
+                                                        className="p-1 text-red-400 hover:text-red-600"
+                                                        title="移除分配"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {!isFirst && executorCount > 1 && (
+                                                <span className="text-xs text-gray-400">同组实例</span>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
@@ -827,7 +832,13 @@ function EditAssignmentModal({
 
     const updateMutation = useMutation({
         mutationFn: async (data: { priority: number; weight: number }) => {
-            const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}/executors/${assignment.executor.id}`, {
+            // 使用第一个执行器实例的ID（后端会根据name更新所有同名实例的assignment）
+            const executorId = assignment.executors?.[0]?.id;
+            if (!executorId) {
+                throw new Error('执行器信息不完整');
+            }
+
+            const response = await fetch(`${apiUrl}/api/v1/tasks/${taskId}/executors/${executorId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),

@@ -70,6 +70,16 @@ func (m *MysqlRepositoryImpl) GetByName(ctx context.Context, name string) (*doma
 	return po.ToDomain(), nil
 }
 
+func (m *MysqlRepositoryImpl) FindByName(ctx context.Context, name string) ([]*domain.Executor, error) {
+	var pos []*Executor
+	if err := m.Db(ctx).Where("name = ?", name).Find(&pos).Error; err != nil {
+		return nil, err
+	}
+	return lo.Map(pos, func(po *Executor, _ int) *domain.Executor {
+		return po.ToDomain()
+	}), nil
+}
+
 func (m *MysqlRepositoryImpl) Update(ctx context.Context, id uint64, patch *domain.ExecutorPatch) error {
 	values := patchToMap(patch)
 	if len(values) == 0 {

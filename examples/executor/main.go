@@ -241,9 +241,8 @@ func registerToScheduler() error {
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
-		"status":      "healthy",
-		"time":        time.Now().Format(time.RFC3339),
-		"executor_id": ExecutorID,
+		"message": "Executor is healthy",
+		"status":  "ok",
 	})
 }
 

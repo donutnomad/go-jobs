@@ -24,6 +24,9 @@ type Repo interface {
 	// CountByExecutorAndStatus 按执行器ID和状态统计执行记录数量
 	CountByExecutorAndStatus(ctx context.Context, executorID uint64, statuses []ExecutionStatus) (int64, error)
 
+	// FindByStatuses 查询指定状态的所有执行记录
+	FindByStatuses(ctx context.Context, statuses []ExecutionStatus) ([]*TaskExecution, error)
+
 	// CreateSkipped 创建跳过的执行记录
 	CreateSkipped(ctx context.Context, taskID uint64, reason string) (*TaskExecution, error)
 
@@ -46,6 +49,7 @@ type ListFilter struct {
 	StartTime mo.Option[int64]
 	EndTime   mo.Option[int64]
 	TaskID    mo.Option[uint64]
+	TaskName  mo.Option[string]
 	Status    mo.Option[ExecutionStatus]
 }
 

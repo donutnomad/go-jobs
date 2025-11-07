@@ -22,8 +22,16 @@ import ExecutionDetail from '@/components/ExecutionDetail';
 import Pagination from '@/components/Pagination';
 
 export default function ExecutionsPage() {
+  // 应用的筛选条件（用于实际查询）
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [taskIdFilter, setTaskIdFilter] = useState<string>('');
+  const [taskNameFilter, setTaskNameFilter] = useState<string>('');
+
+  // 临时筛选条件（用户输入，未应用）
+  const [tempStatusFilter, setTempStatusFilter] = useState<string>('');
+  const [tempTaskIdFilter, setTempTaskIdFilter] = useState<string>('');
+  const [tempTaskNameFilter, setTempTaskNameFilter] = useState<string>('');
+
   const [selectedExecution, setSelectedExecution] = useState<TaskExecution | null>(null);
   const [groupByTask, setGroupByTask] = useState<boolean>(false);
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
@@ -31,10 +39,11 @@ export default function ExecutionsPage() {
   const [pageSize, setPageSize] = useState(20);
 
   const {data: response, isLoading, error, refetch} = useQuery({
-    queryKey: ['executions', statusFilter, taskIdFilter, currentPage, pageSize],
+    queryKey: ['executions', statusFilter, taskIdFilter, taskNameFilter, currentPage, pageSize],
     queryFn: () => executionApi.list({
       status: statusFilter || undefined,
       task_id: taskIdFilter || undefined,
+      task_name: taskNameFilter || undefined,
       page: currentPage,
       page_size: pageSize,
     }).then(res => res.data), // res.data 是 ApiResponse<PaginatedResponse<TaskExecution>>
@@ -132,17 +141,6 @@ export default function ExecutionsPage() {
     setCurrentPage(1); // 重置到第一页
   };
 
-  // 处理筛选器变化
-  const handleStatusFilterChange = (status: string) => {
-    setStatusFilter(status);
-    setCurrentPage(1); // 重置到第一页
-  };
-
-  const handleTaskIdFilterChange = (taskId: string) => {
-    setTaskIdFilter(taskId);
-    setCurrentPage(1); // 重置到第一页
-  };
-
   // 切换任务组展开/折叠状态
   const toggleTaskExpansion = (taskId: string) => {
     const newExpanded = new Set(expandedTasks);
@@ -233,8 +231,8 @@ export default function ExecutionsPage() {
 
       <div className="mb-4 flex items-center space-x-4">
         <select
-          value={statusFilter}
-          onChange={(e) => handleStatusFilterChange(e.target.value)}
+          value={tempStatusFilter}
+          onChange={(e) => setTempStatusFilter(e.target.value)}
           className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="">全部状态</option>
@@ -248,11 +246,46 @@ export default function ExecutionsPage() {
 
         <input
           type="text"
-          value={taskIdFilter}
-          onChange={(e) => handleTaskIdFilterChange(e.target.value)}
+          value={tempTaskIdFilter}
+          onChange={(e) => setTempTaskIdFilter(e.target.value)}
           placeholder="任务 ID 过滤"
           className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
+
+        <input
+          type="text"
+          value={tempTaskNameFilter}
+          onChange={(e) => setTempTaskNameFilter(e.target.value)}
+          placeholder="任务名称（精确匹配）"
+          className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+
+        <button
+          onClick={() => {
+            setStatusFilter(tempStatusFilter);
+            setTaskIdFilter(tempTaskIdFilter);
+            setTaskNameFilter(tempTaskNameFilter);
+            setCurrentPage(1);
+          }}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          确认筛选
+        </button>
+
+        <button
+          onClick={() => {
+            setTempStatusFilter('');
+            setTempTaskIdFilter('');
+            setTempTaskNameFilter('');
+            setStatusFilter('');
+            setTaskIdFilter('');
+            setTaskNameFilter('');
+            setCurrentPage(1);
+          }}
+          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400"
+        >
+          清除筛选
+        </button>
 
         <div className="flex items-center space-x-2 ml-auto">
           <button

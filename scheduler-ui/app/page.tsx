@@ -99,21 +99,19 @@ export default function DashboardPage() {
     refetchInterval: 10000,
   });
 
-  // 获取今日执行统计
+  // 获取24H执行统计
   const { data: executionStats } = useQuery<ExecutionStats>({
     queryKey: ['execution-stats'],
     queryFn: async () => {
-      // 获取今天的开始时间
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const startTime = today.toISOString();
-      
+      // 获取最近24小时的开始时间
+      const startTime = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
       const response = await fetch(`${apiUrl}/api/v1/executions/stats?start_time=${startTime}`);
       if (!response.ok) {
         console.error('Failed to fetch execution stats');
         return { total: 0, success: 0, failed: 0, pending: 0, running: 0 };
       }
-      
+
       const result = await response.json();
       return result.data || result; // 适配不同的响应格式
     },
@@ -208,7 +206,7 @@ export default function DashboardPage() {
         <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">今日执行</p>
+              <p className="text-sm font-medium text-gray-600">24H执行</p>
               <p className="text-2xl font-bold text-gray-900">{systemStats.total_executions_today}</p>
               <p className="text-sm text-blue-600">任务执行次数</p>
             </div>
@@ -221,9 +219,9 @@ export default function DashboardPage() {
         <div className="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">成功率</p>
+              <p className="text-sm font-medium text-gray-600">24H成功率</p>
               <p className="text-2xl font-bold text-gray-900">
-                {systemStats.total_executions_today > 0 
+                {systemStats.total_executions_today > 0
                   ? `${systemStats.success_rate.toFixed(1)}%`
                   : 'N/A'}
               </p>

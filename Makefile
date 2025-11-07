@@ -25,6 +25,11 @@ run: build
 	@echo "Starting scheduler..."
 	@./bin/scheduler -config configs/config.yaml
 
+# 运行调度器
+runLocal: build
+	@echo "Starting scheduler..."
+	@./bin/scheduler -config configs/config.local.yaml
+
 # 清理构建产物
 clean:
 	@echo "Cleaning..."

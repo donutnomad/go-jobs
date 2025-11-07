@@ -77,13 +77,13 @@ func (t *TaskWithAssignmentsResp) FromDomain(in *task.Task) *TaskWithAssignments
 }
 
 type TaskAssignmentResp struct {
-	ID           uint64        `json:"id"`
-	CreatedAt    time.Time     `json:"created_at"`
-	TaskID       uint64        `json:"task_id"`
-	ExecutorName string        `json:"executor_name"`
-	Priority     int           `json:"priority"`
-	Weight       int           `json:"weight"`
-	Executor     *ExecutorResp `json:"executor"`
+	ID           uint64           `json:"id"`
+	CreatedAt    time.Time        `json:"created_at"`
+	TaskID       uint64           `json:"task_id"`
+	ExecutorName string           `json:"executor_name"`
+	Priority     int              `json:"priority"`
+	Weight       int              `json:"weight"`
+	Executors    []*ExecutorResp  `json:"executors"`
 }
 
 func (t *TaskAssignmentResp) FromDomain(in *task.TaskAssignment) *TaskAssignmentResp {
@@ -139,8 +139,10 @@ type TaskStatsResp struct {
 	SuccessRate24h   float64            `json:"success_rate_24h"`
 	Total24h         int64              `json:"total_24h"`
 	Success24h       int64              `json:"success_24h"`
+	Health7d         HealthStatus       `json:"health_7d"`
 	Health90d        HealthStatus       `json:"health_90d"`
 	RecentExecutions []RecentExecutions `json:"recent_executions"`
+	DailyStats7d     []map[string]any   `json:"daily_stats_7d"`
 	DailyStats90d    []map[string]any   `json:"daily_stats_90d"`
 }
 
@@ -320,6 +322,7 @@ func (p PageAndSize) GetTotalPages(total int64) int {
 type ListExecutionReq struct {
 	PageAndSize
 	TaskID    uint64                    `form:"task_id"`
+	TaskName  string                    `form:"task_name"`
 	Status    execution.ExecutionStatus `form:"status"`
 	StartTime int64                     `form:"start_time"`
 	EndTime   int64                     `form:"end_time"`

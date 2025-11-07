@@ -109,9 +109,25 @@ func (t *TaskAPI) List(ctx *gin.Context, req GetTasksReq) ([]*TaskWithAssignment
 	if err != nil {
 		return nil, err
 	}
-	return lo.Map(ret, func(task *task.Task, _ int) *TaskWithAssignmentsResp {
+	result := lo.Map(ret, func(task *task.Task, _ int) *TaskWithAssignmentsResp {
 		return new(TaskWithAssignmentsResp).FromDomain(task)
-	}), nil
+	})
+
+	// 填充每个任务的执行器实例
+	for _, taskResp := range result {
+		for idx, item := range taskResp.Assignments {
+			executors, err := t.executorRepo.FindByName(ctx, item.ExecutorName)
+			if err != nil {
+				return nil, err
+			}
+			item.Executors = lo.Map(executors, func(exec *executor.Executor, _ int) *ExecutorResp {
+				return new(ExecutorResp).FromDomain(exec)
+			})
+			taskResp.Assignments[idx] = item
+		}
+	}
+
+	return result, nil
 }
 
 func (t *TaskAPI) Get(ctx *gin.Context, id uint64) (*TaskWithAssignmentsResp, error) {
@@ -123,11 +139,13 @@ func (t *TaskAPI) Get(ctx *gin.Context, id uint64) (*TaskWithAssignmentsResp, er
 	}
 	ret := new(TaskWithAssignmentsResp).FromDomain(task_)
 	for idx, item := range ret.Assignments {
-		name, err := t.executorRepo.GetByName(ctx, item.ExecutorName)
+		executors, err := t.executorRepo.FindByName(ctx, item.ExecutorName)
 		if err != nil {
 			return nil, err
 		}
-		item.Executor = new(ExecutorResp).FromDomain(name)
+		item.Executors = lo.Map(executors, func(exec *executor.Executor, _ int) *ExecutorResp {
+			return new(ExecutorResp).FromDomain(exec)
+		})
 		ret.Assignments[idx] = item
 	}
 	return ret, nil
@@ -313,8 +331,42 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID uint64) (TaskStatsResp, 
 		successRate24h = float64(successCount24h) / float64(totalCount24h) * 100
 	}
 
+	// 获取7天健康度统计
+	healthStats7d := t.calculateHealthStats(taskID, 7)
+
 	// 获取90天健康度统计
 	healthStats90d := t.calculateHealthStats(taskID, 90)
+
+	// 获取7天每日统计（用于状态图）
+	var dailyStats7d []map[string]any
+	for i := 6; i >= 0; i-- {
+		date := time.Now().AddDate(0, 0, -i)
+		startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+		endOfDay := startOfDay.Add(24 * time.Hour)
+
+		// 总数
+		dayTotal, err := t.executionRepo.CountByTaskAndTimeRange(ctx, taskID, startOfDay, endOfDay)
+		if err != nil {
+			dayTotal = 0
+		}
+
+		// 成功数
+		daySuccess, err := t.executionRepo.CountByTaskStatusAndTimeRange(ctx, taskID, execution.ExecutionStatusSuccess, startOfDay, endOfDay)
+		if err != nil {
+			daySuccess = 0
+		}
+
+		successRate := float64(100) // 默认100%（无执行时）
+		if dayTotal > 0 {
+			successRate = float64(daySuccess) / float64(dayTotal) * 100
+		}
+
+		dailyStats7d = append(dailyStats7d, map[string]any{
+			"date":        startOfDay.Format("2006-01-02"),
+			"successRate": successRate,
+			"total":       dayTotal,
+		})
+	}
 
 	// 获取90天每日统计（用于状态图）
 	var dailyStats []map[string]any
@@ -394,8 +446,10 @@ func (t *TaskAPI) GetTaskStats(ctx *gin.Context, taskID uint64) (TaskStatsResp, 
 		SuccessRate24h:   successRate24h,
 		Total24h:         totalCount24h,
 		Success24h:       successCount24h,
+		Health7d:         healthStats7d,
 		Health90d:        healthStats90d,
 		RecentExecutions: recentExecutions,
+		DailyStats7d:     dailyStats7d,
 		DailyStats90d:    dailyStats,
 	}, nil
 }

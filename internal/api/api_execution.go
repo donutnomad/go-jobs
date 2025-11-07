@@ -188,6 +188,9 @@ func (e *ExecutionAPI) Stats(ctx *gin.Context, req ExecutionStatsReq) (*Executio
 		*item.Count = count
 	}
 
+	// 计算总数
+	stats.Total = stats.Success + stats.Failed + stats.Pending + stats.Running
+
 	return &stats, nil
 }
 
@@ -196,6 +199,7 @@ func (e *ExecutionAPI) List(ctx *gin.Context, req ListExecutionReq) (ListExecuti
 		StartTime: mo.EmptyableToOption(req.StartTime),
 		EndTime:   mo.EmptyableToOption(req.EndTime),
 		TaskID:    mo.EmptyableToOption(req.TaskID),
+		TaskName:  mo.EmptyableToOption(req.TaskName),
 		Status:    mo.EmptyableToOption(req.Status),
 	}, req.GetOffset(), req.GetLimit())
 	if err != nil {

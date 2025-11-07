@@ -28,10 +28,12 @@ export interface Task {
 export interface TaskExecutor {
   id: string;
   task_id: string;
-  executor_id: string;
+  executor_name: string;
+  executor_id?: string; // 保留向后兼容
   priority: number;
   weight: number;
-  executor?: Executor;
+  created_at: string;
+  executors?: Executor[]; // 改为数组
 }
 
 export interface Executor {

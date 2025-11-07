@@ -29,10 +29,12 @@ func (r *MysqlRepositoryImpl) Count(ctx context.Context, query domain.CountQuery
 	var db = r.Db(ctx).Model(&TaskExecution{})
 
 	if query.StartTime.IsPresent() {
-		db = db.Where("scheduled_time >= ?", query.StartTime.MustGet())
+		startTime := time.Unix(query.StartTime.MustGet(), 0)
+		db = db.Where("scheduled_time >= ?", startTime)
 	}
 	if query.EndTime.IsPresent() {
-		db = db.Where("scheduled_time <= ?", query.EndTime.MustGet())
+		endTime := time.Unix(query.EndTime.MustGet(), 0)
+		db = db.Where("scheduled_time <= ?", endTime)
 	}
 	if query.TaskID.IsPresent() {
 		db = db.Where("task_id = ?", query.TaskID.MustGet())
@@ -90,17 +92,23 @@ func (r *MysqlRepositoryImpl) Delete(ctx context.Context, id uint64) error {
 func (r *MysqlRepositoryImpl) List(ctx context.Context, filter domain.ListFilter, offset, limit int) ([]*domain.TaskExecution, int64, error) {
 	db := r.Db(ctx).Model(&TaskExecution{})
 
+	// 如果需要按任务名称过滤，需要JOIN tasks表
+	if filter.TaskName.IsPresent() {
+		db = db.Joins("INNER JOIN jobs_task ON jobs_task.id = jobs_task_executions.task_id").
+			Where("jobs_task.name = ?", filter.TaskName.MustGet())
+	}
+
 	if filter.StartTime.IsPresent() {
-		db = db.Where("scheduled_time >= ?", filter.StartTime.MustGet())
+		db = db.Where("jobs_task_executions.scheduled_time >= ?", filter.StartTime.MustGet())
 	}
 	if filter.EndTime.IsPresent() {
-		db = db.Where("scheduled_time <= ?", filter.EndTime.MustGet())
+		db = db.Where("jobs_task_executions.scheduled_time <= ?", filter.EndTime.MustGet())
 	}
 	if filter.TaskID.IsPresent() {
-		db = db.Where("task_id = ?", filter.TaskID.MustGet())
+		db = db.Where("jobs_task_executions.task_id = ?", filter.TaskID.MustGet())
 	}
 	if filter.Status.IsPresent() {
-		db = db.Where("status = ?", filter.Status.MustGet())
+		db = db.Where("jobs_task_executions.status = ?", filter.Status.MustGet())
 	}
 
 	var count int64
@@ -109,7 +117,7 @@ func (r *MysqlRepositoryImpl) List(ctx context.Context, filter domain.ListFilter
 	}
 
 	var pos []*TaskExecution
-	if err := db.Order("scheduled_time DESC").Limit(limit).Offset(offset).Find(&pos).Error; err != nil {
+	if err := db.Order("jobs_task_executions.scheduled_time DESC").Limit(limit).Offset(offset).Find(&pos).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -136,6 +144,20 @@ func (r *MysqlRepositoryImpl) CountByExecutorAndStatus(ctx context.Context, exec
 		Where("status IN ?", statuses).
 		Count(&count).Error
 	return count, err
+}
+
+func (r *MysqlRepositoryImpl) FindByStatuses(ctx context.Context, statuses []domain.ExecutionStatus) ([]*domain.TaskExecution, error) {
+	var pos []*TaskExecution
+	err := r.Db(ctx).Where("status IN ?", statuses).Find(&pos).Error
+	if err != nil {
+		return nil, err
+	}
+
+	domains := make([]*domain.TaskExecution, len(pos))
+	for i := range pos {
+		domains[i] = pos[i].ToDomain()
+	}
+	return domains, nil
 }
 
 func (r *MysqlRepositoryImpl) CreateSkipped(ctx context.Context, taskID uint64, reason string) (*domain.TaskExecution, error) {

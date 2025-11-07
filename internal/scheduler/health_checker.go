@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -14,6 +16,12 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 )
+
+// HealthCheckResponse 定义健康检查的期望响应格式
+type HealthCheckResponse struct {
+	Message string `json:"message"`
+	Status  string `json:"status"`
+}
 
 type HealthChecker struct {
 	logger       *zap.Logger
@@ -130,13 +138,22 @@ func (h *HealthChecker) checkExecutor(exe *executor.Executor) {
 	exe.ClearPatch().UpdateLastHealthCheck(time.Now())
 
 	if isHealthy {
-		_, recoveredOnline, didRecover := exe.TryRecoverAfterSuccess(h.incSuccess(exe.ID), h.config.RecoveryThreshold)
-		if didRecover {
-			// 恢复后，清空计数
-			h.resetSuccess(exe.ID)
-		}
-		if recoveredOnline && h.taskRunner != nil {
-			h.taskRunner.ResetBreaker(exe.ID)
+		// 判断执行器是否需要恢复
+		needsRecovery := !exe.IsHealthy || exe.Status == executor.ExecutorStatusOffline
+
+		if needsRecovery {
+			// 需要恢复时才累加计数
+			_, recoveredOnline, didRecover := exe.TryRecoverAfterSuccess(h.incSuccess(exe.ID), h.config.RecoveryThreshold)
+			if didRecover {
+				// 恢复完成，清空计数
+				h.resetSuccess(exe.ID)
+			}
+			if recoveredOnline && h.taskRunner != nil {
+				h.taskRunner.ResetBreaker(exe.ID)
+			}
+		} else {
+			// 已经健康，只需要重置失败计数（TryRecoverAfterSuccess 会处理）
+			exe.TryRecoverAfterSuccess(0, h.config.RecoveryThreshold)
 		}
 	} else {
 		// 失败：清空连续成功计数
@@ -205,6 +222,31 @@ func (h *HealthChecker) ping(ctx context.Context, executor *executor.Executor) b
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		h.logger.Debug("health check returned non-2xx status", zap.Uint64("executor_id", executor.ID), zap.Int("status_code", resp.StatusCode))
+		return false
+	}
+
+	// 读取并验证响应体内容
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		h.logger.Debug("failed to read health check response body", zap.Uint64("executor_id", executor.ID), zap.Error(err))
+		return false
+	}
+
+	// 解析JSON响应
+	var healthResp HealthCheckResponse
+	if err := json.Unmarshal(body, &healthResp); err != nil {
+		h.logger.Debug("failed to parse health check response", zap.Uint64("executor_id", executor.ID), zap.String("body", string(body)), zap.Error(err))
+		return false
+	}
+
+	// 验证响应格式：必须包含正确的message和status
+	if healthResp.Message != "Executor is healthy" || healthResp.Status != "ok" {
+		h.logger.Debug("health check response format invalid",
+			zap.Uint64("executor_id", executor.ID),
+			zap.String("expected_message", "Executor is healthy"),
+			zap.String("expected_status", "ok"),
+			zap.String("actual_message", healthResp.Message),
+			zap.String("actual_status", healthResp.Status))
 		return false
 	}
 

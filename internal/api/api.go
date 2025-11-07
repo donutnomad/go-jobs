@@ -38,7 +38,9 @@ func (c *CommonAPI) HealthCheck(ctx *gin.Context) (gin.H, error) {
 }
 
 func (c *CommonAPI) SchedulerStats(ctx *gin.Context) (SchedulerStatsResp, error) {
-	instances, err := c.schedulerInstanceRepo.List(ctx)
+	// 只返回活跃的实例（最近30秒内有心跳更新的实例）
+	// 30秒 = 3倍默认心跳间隔(10秒)，足够容忍网络延迟
+	instances, err := c.schedulerInstanceRepo.ListActive(ctx, 30)
 	if err != nil {
 		return SchedulerStatsResp{}, err
 	}

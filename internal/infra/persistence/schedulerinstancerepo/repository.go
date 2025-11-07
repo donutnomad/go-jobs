@@ -48,7 +48,31 @@ func (r *MysqlRepositoryImpl) Save(ctx context.Context, instance *domain.Schedul
 func (r *MysqlRepositoryImpl) UpdateLeaderStatus(ctx context.Context, instanceID string, isLeader bool) error {
 	return r.Db(ctx).Model(&SchedulerInstancePO{}).
 		Where("instance_id = ?", instanceID).
-		Update("is_leader", isLeader).Error
+		Updates(map[string]interface{}{
+			"is_leader":  isLeader,
+			"updated_at": gorm.Expr("NOW()"),
+		}).Error
+}
+
+func (r *MysqlRepositoryImpl) UpdateHeartbeat(ctx context.Context, instanceID string) error {
+	return r.Db(ctx).Model(&SchedulerInstancePO{}).
+		Where("instance_id = ?", instanceID).
+		Update("updated_at", gorm.Expr("NOW()")).Error
+}
+
+func (r *MysqlRepositoryImpl) ListActive(ctx context.Context, maxIdleSeconds int) ([]*domain.SchedulerInstance, error) {
+	var pos []*SchedulerInstancePO
+	// 查询最近更新时间在maxIdleSeconds秒内的实例
+	// 排序：1. Leader在前 2. 按创建时间升序
+	if err := r.Db(ctx).
+		Where("updated_at >= DATE_SUB(NOW(), INTERVAL ? SECOND)", maxIdleSeconds).
+		Order("is_leader DESC, created_at ASC").
+		Find(&pos).Error; err != nil {
+		return nil, err
+	}
+	return lo.Map(pos, func(po *SchedulerInstancePO, _ int) *domain.SchedulerInstance {
+		return po.ToDomain()
+	}), nil
 }
 
 func (r *MysqlRepositoryImpl) DeleteExpired(ctx context.Context, maxAge int64) error {
